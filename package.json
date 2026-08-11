@@ -1,0 +1,16 @@
+{
+  "name": "price-tracker",
+  "version": "1.0.0",
+  "description": "Automatyczny tracker cen produktów z Google Sheets i Discord",
+  "type": "module",
+  "scripts": {
+    "check": "node src/index.js"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "googleapis": "^140.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
