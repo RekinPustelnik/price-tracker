@@ -56,10 +56,19 @@ function buildHeaders(url) {
  * @returns {Promise<number|null>} Cena jako liczba lub null przy błędzie
  */
 export async function scrapePrice(url, selector) {
+  const scraperApiKey = process.env.SCRAPER_API_KEY;
+  
+  // Jeśli mamy klucz API, wysyłamy zapytanie przez ScraperAPI
+  // Opcja premium=true pomaga z bardzo trudnymi stronami (zużywa więcej kredytów, ale Footshop może tego wymagać)
+  const targetUrl = scraperApiKey 
+    ? `https://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}` 
+    : url;
+
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const response = await fetch(url, {
-        headers: buildHeaders(url),
+      const response = await fetch(targetUrl, {
+        // Jeśli używamy ScraperAPI, nie wysyłamy własnych nagłówków, bo proxy zarządza nagłówkami
+        headers: scraperApiKey ? {} : buildHeaders(url),
         signal: AbortSignal.timeout(TIMEOUT_MS),
         redirect: 'follow',
       });
