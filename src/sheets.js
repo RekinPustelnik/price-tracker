@@ -37,6 +37,15 @@ async function getSheetsClient() {
 }
 
 /**
+ * Parsuje liczbę z arkusza (odporność na polski format z przecinkiem i spacjami).
+ */
+function parseSheetNumber(val) {
+  if (!val) return null;
+  const num = parseFloat(val.toString().replace(/\s/g, '').replace(',', '.'));
+  return isNaN(num) ? null : num;
+}
+
+/**
  * Pobiera listę produktów z arkusza (pomija wiersz nagłówkowy).
  *
  * @returns {Promise<Array<{
@@ -66,9 +75,9 @@ export async function getProducts() {
       nazwa: (row[COLUMNS.NAZWA] || '').trim(),
       url: (row[COLUMNS.URL] || '').trim(),
       selektor: (row[COLUMNS.SELEKTOR] || '').trim(),
-      cena: parseFloat(row[COLUMNS.CENA]) || null,
-      najnizsza: parseFloat(row[COLUMNS.NAJNIZSZA]) || null,
-      alertPonizej: parseFloat(row[COLUMNS.ALERT_PONIZEJ]) || null,
+      cena: parseSheetNumber(row[COLUMNS.CENA]),
+      najnizsza: parseSheetNumber(row[COLUMNS.NAJNIZSZA]),
+      alertPonizej: parseSheetNumber(row[COLUMNS.ALERT_PONIZEJ]),
     }))
     .filter((p) => p.nazwa && p.url && p.selektor); // Filtruj puste/niekompletne wiersze
 }
