@@ -4,12 +4,49 @@
 
 import * as cheerio from 'cheerio';
 
-// Realistyczny User-Agent żeby strony nie blokowały requestów
-const USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+// Rotacja User-Agentów żeby zmniejszyć ryzyko blokady
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+];
 
-const TIMEOUT_MS = 15_000;
-const MAX_RETRIES = 2;
+const TIMEOUT_MS = 20_000;
+const MAX_RETRIES = 3;
+
+/**
+ * Zwraca losowy User-Agent z listy.
+ */
+function randomUserAgent() {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
+
+/**
+ * Buduje nagłówki udające prawdziwą przeglądarkę.
+ * Wiele stron sprawdza te nagłówki i blokuje requesty bez nich.
+ */
+function buildHeaders(url) {
+  const origin = new URL(url).origin;
+  return {
+    'User-Agent': randomUserAgent(),
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Language': 'pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Referer': origin + '/',
+    'DNT': '1',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'same-origin',
+    'Sec-Fetch-User': '?1',
+    'Sec-CH-UA': '"Chromium";v="126", "Google Chrome";v="126", "Not-A.Brand";v="8"',
+    'Sec-CH-UA-Mobile': '?0',
+    'Sec-CH-UA-Platform': '"Windows"',
+    'Cache-Control': 'max-age=0',
+  };
+}
 
 /**
  * Pobiera stronę i wyciąga cenę za pomocą CSS selektora.
@@ -22,12 +59,9 @@ export async function scrapePrice(url, selector) {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       const response = await fetch(url, {
-        headers: {
-          'User-Agent': USER_AGENT,
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'pl-PL,pl;q=0.9,en;q=0.8',
-        },
+        headers: buildHeaders(url),
         signal: AbortSignal.timeout(TIMEOUT_MS),
+        redirect: 'follow',
       });
 
       if (!response.ok) {
@@ -54,8 +88,9 @@ export async function scrapePrice(url, selector) {
       console.error(`  ✗ [Próba ${attempt}/${MAX_RETRIES}] ${err.message}`);
 
       if (attempt < MAX_RETRIES) {
-        // Czekamy sekundę przed ponowną próbą
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        // Losowy delay 1-3s żeby wyglądać bardziej naturalnie
+        const delay = 1000 + Math.random() * 2000;
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
   }
