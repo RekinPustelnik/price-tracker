@@ -122,6 +122,9 @@ export function parsePrice(text) {
   // Usuń wszystko poza cyframi, kropkami, przecinkami
   let cleaned = text.replace(/[^\d.,]/g, '');
 
+  // Usuń kropki i przecinki z samego początku i końca (np. kropka na końcu zdania "239,99 zł.")
+  cleaned = cleaned.replace(/^[.,]+|[.,]+$/g, '');
+
   if (!cleaned) return null;
 
   // Ustal separator dziesiętny:
