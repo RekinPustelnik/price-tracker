@@ -1,161 +1,168 @@
 # 💰 Price Tracker
 
-Automatyczny tracker cen produktów ze sklepów internetowych. Działa w chmurze (GitHub Actions), zapisuje ceny do Google Sheets, wysyła alerty na Discord.
+[![Node.js](https://img.shields.io/badge/Node.js-v18%2B-green.svg)](https://nodejs.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Google Sheets API](https://img.shields.io/badge/Google%20Sheets-API%20v4-blue.svg)](https://developers.google.com/sheets/api)
+[![Discord Webhook](https://img.shields.io/badge/Discord-Webhook%20Alerts-5865F2.svg)](https://discord.com)
+[![GitHub Actions](https://img.shields.io/badge/Automated-GitHub%20Actions-2088FF.svg)](https://github.com/features/actions)
 
-## Jak to działa
-
-1. **GitHub Actions** uruchamia skrypt co 30 minut (darmowe)
-2. Skrypt czyta listę produktów z **Google Sheets**
-3. Wchodzi na stronę każdego produktu i wyciąga cenę **CSS selektorem**
-4. Jeśli cena spadła → aktualizuje arkusz + wysyła alert na **Discord**
+Bezserwerowy, zautomatyzowany tracker cen produktów ze sklepów internetowych. Działa w 100% za darmo w chmurze (**GitHub Actions**), przechowuje dane w **Google Sheets** i natychmiast wysyła powiadomienia o obniżkach na **Discord**.
 
 ---
 
-## 🚀 Konfiguracja (jednorazowa, ~10 minut)
+## ⚡ Główne funkcje
 
-### 1. Google Cloud — Service Account
+- 🤖 **100% Automatyzacji**: Działa w chmurze bez potrzeby utrzymywania własnego serwera czy włączonego komputera.
+- 📊 **Wygodny panel w Google Sheets**: Zarządzaj listą produktów, linkami i progami alertów bezpośrednio w arkuszu kalkulacyjnym.
+- 🚨 **Alerty Discord**: Estetyczne powiadomienia w formie embedów ze starą i nową ceną, wyliczoną różnicą kwotową i procentową.
+- 🛡️ **Dwufazowy scraping antybotowy**:
+  - **Faza 1 (Direct)**: Losowa rotacja realistycznych User-Agentów i nagłówków przeglądarki.
+  - **Faza 2 (Proxy Fallback)**: Automatyczne przekierowanie przez **ScraperAPI** w przypadku wykrycia blokad (HTTP 403 / Cloudflare).
+- 🔢 **Inteligentny parser cen (`parsePrice`)**: Niezawodnie obsługuje formaty polskie i międzynarodowe (`1 234,56 zł`, `1,234.56`, `239,99 zł.` itp.).
+- 📈 **Śledzenie historii**: Automat zapisuje bieżącą cenę, historycznie najniższą cenę oraz dokładny znacznik czasu ostatniej weryfikacji.
 
-1. Wejdź na [console.cloud.google.com](https://console.cloud.google.com/)
-2. Stwórz nowy projekt (lub użyj istniejącego)
-3. Wejdź w **APIs & Services → Library**
-4. Wyszukaj **Google Sheets API** i kliknij **Enable**
-5. Wejdź w **IAM & Admin → Service Accounts**
-6. Kliknij **Create Service Account**
-   - Nazwa: np. `price-tracker`
-   - Kliknij **Done**
-7. Kliknij na stworzone konto → zakładka **Keys**
-8. **Add Key → Create new key → JSON** → pobierz plik
+---
 
-Z pobranego pliku JSON potrzebujesz:
-- `client_email` — np. `price-tracker@my-project.iam.gserviceaccount.com`
-- `private_key` — długi klucz zaczynający się od `-----BEGIN PRIVATE KEY-----`
+## 🔄 Jak to działa?
 
-### 2. Google Sheets — Arkusz
+```mermaid
+flowchart LR
+    A[⏰ GitHub Actions Cron] --> B[📋 Pobierz listę z Google Sheets]
+    B --> C[🌐 Pobierz stronę i wyciągnij cenę CSS]
+    C --> D{Czy cena spadła?}
+    D -- TAK --> E[🔔 Wyślij alert na Discord]
+    D -- NIE --> F[💾 Aktualizuj arkusz Sheets]
+    E --> F
+```
 
-1. Stwórz nowy arkusz Google Sheets
-2. W pierwszym wierszu (nagłówki) wpisz:
+---
+
+## 📚 Pełna dokumentacja
+
+Szczegółowe poradniki i dokumentacja techniczna znajdują się w katalogu `docs/`:
+
+- 🏛️ **[Architektura Systemu](docs/ARCHITECTURE.md)** — Opis modułów, diagramy sekwencji, przepływ danych i obsługa błędów.
+- ⚙️ **[Instrukcja Konfiguracji Krok po Kroku](docs/CONFIGURATION.md)** — Konfiguracja Google Cloud Service Account, arkusza, Discorda i GitHub Actions.
+- 🔍 **[Przewodnik po Scrapingu i Selektorach CSS](docs/SCRAPING_GUIDE.md)** — Jak dobierać selektory, testować je w DevTools i omijać zabezpieczenia.
+
+---
+
+## 🚀 Szybki start (Konfiguracja w 10 minut)
+
+### 1. Przygotuj arkusz Google Sheets
+Utwórz nowy arkusz z nagłówkami w wierszu 1:
 
 | A | B | C | D | E | F | G |
 |---|---|---|---|---|---|---|
-| Nazwa | URL | Selektor | Cena | Najniższa | Alert poniżej | Ostatnie sprawdzenie |
+| **Nazwa** | **URL** | **Selektor** | **Cena** | **Najniższa** | **Alert poniżej** | **Ostatnie sprawdzenie** |
 
-3. Dodaj produkty od wiersza 2 — wypełnij kolumny **Nazwa**, **URL**, **Selektor** i opcjonalnie **Alert poniżej**
-4. **Udostępnij arkusz** → kliknij "Udostępnij" → wklej email `client_email` z kroku 1 → rola **Edytor**
-5. Skopiuj **ID arkusza** z URL-a:
-   ```
-   https://docs.google.com/spreadsheets/d/TUTAJ_JEST_ID/edit
-   ```
+Wypełnij kolumny **A**, **B**, **C** (oraz opcjonalnie **F** z kwotą alertu). Kolumny **D**, **E**, **G** wypełnia automat.
 
-### 3. Discord — Webhook
+### 2. Utwórz Google Cloud Service Account
+1. Wejdź na [Google Cloud Console](https://console.cloud.google.com/), stwórz projekt i włącz **Google Sheets API**.
+2. W **IAM & Admin → Service Accounts** utwórz konto serwisowe i wygeneruj klucz w formacie **JSON**.
+3. Udostępnij swój arkusz Google Sheets na adres `client_email` z pobranego pliku JSON z uprawnieniami **Edytor**.
 
-1. Na Discordzie wejdź w ustawienia kanału → **Integracje → Webhooks**
-2. Kliknij **Nowy webhook**
-3. Skopiuj **URL webhooka**
+### 3. Skonfiguruj Webhook Discord
+W ustawieniach wybranego kanału Discord przejdź do **Integracje → Webhooki → Nowy Webhook** i skopiuj jego URL.
 
-### 4. GitHub — Repozytorium i sekrety
+### 4. Dodaj sekrety w repozytorium GitHub
+W swoim repozytorium na GitHubie przejdź do **Settings → Secrets and variables → Actions** i dodaj:
 
-1. Stwórz nowe repo na GitHub (publiczne = nieograniczone minuty darmowe)
-2. Wrzuć pliki tego projektu do repo
-3. Wejdź w **Settings → Secrets and variables → Actions**
-4. Dodaj 4 sekrety:
-
-| Nazwa sekretu | Wartość |
+| Nazwa sekretu | Opis |
 |---|---|
-| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | Email z pliku JSON (np. `price-tracker@...iam.gserviceaccount.com`) |
-| `GOOGLE_PRIVATE_KEY` | Klucz prywatny z pliku JSON (cały, łącznie z `-----BEGIN/END-----`) |
-| `SPREADSHEET_ID` | ID arkusza z URL-a |
-| `DISCORD_WEBHOOK_URL` | URL webhooka Discord |
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | Adres `client_email` z pliku JSON |
+| `GOOGLE_PRIVATE_KEY` | Cały klucz prywatny `private_key` (wraz z nagłówkami BEGIN/END) |
+| `SPREADSHEET_ID` | Identyfikator arkusza z adresu URL (`/d/<ID>/edit`) |
+| `DISCORD_WEBHOOK_URL` | Adres URL webhooka Discord |
+| `SCRAPER_API_KEY` | *(Opcjonalnie)* Darmowy klucz z [ScraperAPI](https://www.scraperapi.com/) do omijania blokad |
 
-5. Wejdź w zakładkę **Actions** i kliknij "I understand my workflows, go ahead and enable them"
-6. Gotowe! Skrypt będzie się uruchamiał automatycznie co 30 minut.
-
-> 💡 Możesz też uruchomić ręcznie: Actions → "Sprawdź ceny" → Run workflow
+Po dodaniu sekretów przejdź do zakładki **Actions** i uruchom workflow **Sprawdź ceny** (lub poczekaj na automatyczne wywołanie harmonogramu).
 
 ---
 
-## 📦 Jak dodać produkt do śledzenia
+## 🔍 Przykładowe selektory CSS dla sklepów
 
-1. Otwórz arkusz Google Sheets
-2. W nowym wierszu wpisz:
-   - **Nazwa** — dowolna, np. "Ryzen 7 7800X3D"
-   - **URL** — pełny link do strony produktu
-   - **Selektor** — CSS selektor elementu z ceną (patrz niżej)
-   - **Alert poniżej** — opcjonalnie, cena poniżej której chcesz 🚨 alert
+| Sklep | Przykładowy selektor |
+|---|---|
+| **x-kom.pl** | `.product-price` lub `[data-price]` |
+| **morele.net** | `.product-price` |
+| **mediaexpert.pl** | `.is-price` |
+| **euro.com.pl** | `.product-price .price-normal` |
+| **amazon.pl** | `.a-price .a-offscreen` |
+| **ceneo.pl** | `.product-offer__price .price` |
 
-Kolumny **Cena**, **Najniższa**, **Ostatnie sprawdzenie** — nie ruszaj, skrypt je wypełni sam.
-
----
-
-## 🔍 Jak znaleźć CSS selektor ceny
-
-1. Wejdź na stronę produktu w przeglądarce
-2. Kliknij prawym na cenę → **Zbadaj element** (Inspect)
-3. Znajdź element HTML z ceną
-4. Kliknij prawym na element w DevTools → **Copy → Copy selector**
-
-### Przykłady selektorów dla popularnych sklepów
-
-> ⚠️ Selektory mogą się zmienić gdy sklep zaktualizuje stronę. Sprawdź czy działają!
-
-| Sklep | Przykładowy selektor | Uwagi |
-|---|---|---|
-| **x-kom.pl** | `.product-price` lub `[data-price]` | Sprawdź w DevTools |
-| **morele.net** | `.product-price` | — |
-| **mediaexpert.pl** | `.is-price` | — |
-| **euro.com.pl** | `.product-price .price-normal` | — |
-| **amazon.com** | `.a-price .a-offscreen` | — |
-| **ceneo.pl** | `.product-offer__price .price` | — |
-
-> 💡 **Pro tip:** Testuj selektor w konsoli przeglądarki:
+> 💡 **Wskazówka:** Przetestuj selektor w konsoli przeglądarki (`F12`):
 > ```javascript
-> document.querySelector('TWÓJ_SELEKTOR').textContent
+> document.querySelector('TWÓJ_SELEKTOR').textContent.trim()
 > ```
-> Jeśli zwraca cenę — selektor działa.
+> Więcej informacji znajdziesz w [Przewodniku po Scrapingu](docs/SCRAPING_GUIDE.md).
 
 ---
 
-## 🛠 Uruchomienie lokalne (testowanie)
+## 🛠️ Uruchomienie lokalne
 
 ```bash
-# Zainstaluj zależności
+# 1. Klonowanie i instalacja zależności
+git clone https://github.com/twoj-login/price-tracker.git
+cd price-tracker
 npm install
 
-# Ustaw zmienne środowiskowe
-export GOOGLE_SERVICE_ACCOUNT_EMAIL="twój-email@...iam.gserviceaccount.com"
-export GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
-export SPREADSHEET_ID="id-arkusza"
-export DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..."
+# 2. Konfiguracja zmiennych środowiskowych
+cp .env.example .env
+# Edytuj plik .env i wklej swoje klucze
 
-# Uruchom
-npm run check
-```
-
-Na Windows (PowerShell):
-```powershell
-$env:GOOGLE_SERVICE_ACCOUNT_EMAIL="twój-email@...iam.gserviceaccount.com"
-$env:GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----`n...`n-----END PRIVATE KEY-----"
-$env:SPREADSHEET_ID="id-arkusza"
-$env:DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..."
-
+# 3. Uruchomienie sprawdzania cen
 npm run check
 ```
 
 ---
 
-## ❓ FAQ
+## 📁 Struktura projektu
 
-**Q: Ile kosztują minuty GitHub Actions?**
-A: Publiczne repo = darmowe bez limitu. Prywatne = 2000 min/mies. darmowe. Przy cronie co 30 min zużyjesz ~720 min/mies.
+```
+price-tracker/
+├── .github/
+│   └── workflows/
+│       └── price-check.yml   # Konfiguracja GitHub Actions CI/CD
+├── docs/                     # Dokumentacja szczegółowa
+│   ├── ARCHITECTURE.md       # Architektura, przepływ danych, moduły
+│   ├── CONFIGURATION.md      # Instrukcja konfiguracji usług krok po kroku
+│   └── SCRAPING_GUIDE.md     # Poradnik dobierania selektorów CSS i parsera cen
+├── src/
+│   ├── index.js              # Główny skrypt orkiestrujący
+│   ├── scraper.js            # Pobieranie stron, nagłówki, fallback ScraperAPI, parser
+│   ├── sheets.js             # Komunikacja z Google Sheets API v4
+│   └── discord.js            # Wysyłanie powiadomień i podsumowań na Discord
+├── .env.example              # Szablon zmiennych środowiskowych
+├── package.json              # Zależności i skrypty npm
+└── README.md                 # Główny dokument repozytorium
+```
 
-**Q: Cena się nie pobiera / jest null**
-A: Sprawdź selektor CSS w DevTools. Niektóre strony ładują cenę JavaScriptem — wtedy prosty fetch nie zadziała (potrzebny byłby Puppeteer/Playwright, ale to inne podejście).
+---
 
-**Q: Mogę zmienić częstotliwość sprawdzania?**
-A: Tak, edytuj `cron` w `.github/workflows/price-check.yml`. Przykłady:
-- Co godzinę: `0 * * * *`
-- Co 15 minut: `*/15 * * * *`
-- Co 6 godzin: `0 */6 * * *`
-- Raz dziennie o 9:00: `0 9 * * *`
+## ❓ Najczęstsze pytania (FAQ)
 
-**Q: Strona blokuje requesty**
-A: Skrypt używa realistycznego User-Agent, ale niektóre strony agresywnie blokują boty. Spróbuj inny selektor lub inna stronę z tym produktem.
+<details>
+<summary><b>Jak często skrypt sprawdza ceny?</b></summary>
+
+Domyślnie skrypt uruchamia się **co 12 godzin** (`0 */12 * * *` w pliku `.github/workflows/price-check.yml`). Możesz dowolnie zmienić ten harmonogram, np. na co 1 godzinę lub 30 minut — zobacz [Instrukcję Konfiguracji](docs/CONFIGURATION.md#krok-6-dostosowanie-cz%C4%99stotliwo%C5%9Bci-cron).
+</details>
+
+<details>
+<summary><b>Co zrobić, gdy cena zwraca błąd lub null?</b></summary>
+
+Upewnij się, że strona nie renderuje ceny dynamicznie przez JavaScript po załadowaniu szkieletu HTML. Jeśli sklep blokuje ruch kodem 403 (Cloudflare), dodaj darmowy klucz `SCRAPER_API_KEY`.
+</details>
+
+<details>
+<summary><b>Czy korzystanie z GitHub Actions jest płatne?</b></summary>
+
+Dla publicznych repozytoriów GitHub Actions są **w 100% darmowe i nielimitowane**. Dla prywatnych repozytoriów otrzymujesz 2000 darmowych minut miesięcznie (skrypt uruchamiany dwa razy dziennie zużywa jedynie kilkadziesiąt minut w miesiącu).
+</details>
+
+---
+
+## 📄 Licencja
+
+Projekt jest udostępniany na licencji MIT. Szczegóły w pliku LICENSE (o ile dodany).
