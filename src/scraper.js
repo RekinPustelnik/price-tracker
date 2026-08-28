@@ -56,19 +56,42 @@ function buildHeaders(url) {
  * @returns {Promise<number|null>} Cena jako liczba lub null przy błędzie
  */
 export async function scrapePrice(url, selector) {
-  const scraperApiKey = process.env.SCRAPER_API_KEY;
-  
-  // Jeśli mamy klucz API, wysyłamy zapytanie przez ScraperAPI
-  // Opcja premium=true pomaga z bardzo trudnymi stronami (zużywa więcej kredytów, ale Footshop może tego wymagać)
-  const targetUrl = scraperApiKey 
-    ? `https://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}` 
-    : url;
+  // FAZA 1: Spróbuj bezpośrednio (bez ScraperAPI)
+  // Wiele stron (zibru, desigual, perfectblue) działa bez proxy
+  console.log(`  → Próba bezpośrednia...`);
+  const directResult = await fetchAndParse(url, selector, buildHeaders(url), 2);
+  if (directResult !== null) return directResult;
 
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+  // FAZA 2: Jeśli bezpośrednio nie wyszło — spróbuj przez ScraperAPI (jeśli mamy klucz)
+  const scraperApiKey = process.env.SCRAPER_API_KEY;
+  if (scraperApiKey) {
+    console.log(`  → Próba przez ScraperAPI...`);
+    const proxyUrl = `https://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}`;
+    const proxyResult = await fetchAndParse(proxyUrl, selector, {}, 1);
+    if (proxyResult !== null) return proxyResult;
+
+    // Jeśli ScraperAPI też zwróciło błąd — prawdopodobnie wyczerpany limit
+    console.log(`  ⚠ ScraperAPI nie pomogło (możliwe wyczerpanie limitu)`);
+  }
+
+  return null;
+}
+
+/**
+ * Pomocnicza funkcja: pobiera HTML i parsuje cenę.
+ * Wydzielona żeby można było ją wywołać osobno dla trybu bezpośredniego i proxy.
+ *
+ * @param {string} targetUrl - URL do pobrania (bezpośredni lub przez proxy)
+ * @param {string} selector - CSS selektor ceny
+ * @param {object} headers - Nagłówki HTTP
+ * @param {number} maxRetries - Maksymalna liczba prób
+ * @returns {Promise<number|null>}
+ */
+async function fetchAndParse(targetUrl, selector, headers, maxRetries) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const response = await fetch(targetUrl, {
-        // Jeśli używamy ScraperAPI, nie wysyłamy własnych nagłówków, bo proxy zarządza nagłówkami
-        headers: scraperApiKey ? {} : buildHeaders(url),
+        headers,
         signal: AbortSignal.timeout(TIMEOUT_MS),
         redirect: 'follow',
       });
@@ -94,10 +117,9 @@ export async function scrapePrice(url, selector) {
       console.log(`  ✓ Cena: ${price} (tekst: "${rawText}")`);
       return price;
     } catch (err) {
-      console.error(`  ✗ [Próba ${attempt}/${MAX_RETRIES}] ${err.message}`);
+      console.error(`  ✗ [Próba ${attempt}/${maxRetries}] ${err.message}`);
 
-      if (attempt < MAX_RETRIES) {
-        // Losowy delay 1-3s żeby wyglądać bardziej naturalnie
+      if (attempt < maxRetries) {
         const delay = 1000 + Math.random() * 2000;
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
