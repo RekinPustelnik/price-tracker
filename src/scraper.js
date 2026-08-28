@@ -12,7 +12,7 @@ const USER_AGENTS = [
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
 ];
 
-const TIMEOUT_MS = 20_000;
+const TIMEOUT_MS = 45_000;
 
 /**
  * Zwraca losowy User-Agent z listy.

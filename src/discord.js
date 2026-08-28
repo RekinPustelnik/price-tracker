@@ -83,7 +83,8 @@ export async function sendPriceAlert(product, oldPrice, newPrice, isBelowAlert) 
  * @param {number} stats.checked - Sprawdzonych pomyślnie
  * @param {number} stats.priceDrops - Spadki cen
  * @param {number} stats.alerts - Alerty (poniżej progu)
- * @param {number} stats.errors - Błędy
+ * @param {number} stats.otherErrors - Błędy inne niż 403
+ * @param {number} stats.blocked - Błędy 403 (zablokowane)
  */
 export async function sendSummary(stats) {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
@@ -99,7 +100,8 @@ export async function sendSummary(stats) {
       { name: 'Sprawdzono', value: `${stats.checked}/${stats.total}`, inline: true },
       { name: 'Spadki cen', value: `${stats.priceDrops}`, inline: true },
       { name: 'Alerty', value: `${stats.alerts}`, inline: true },
-      { name: 'Błędy', value: `${stats.errors}`, inline: true },
+      { name: 'Zablokowane', value: `${stats.blocked}`, inline: true },
+      { name: 'Inne błędy', value: `${stats.otherErrors}`, inline: true },
     ],
     footer: { text: 'Price Tracker' },
     timestamp: new Date().toISOString(),
