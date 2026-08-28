@@ -89,8 +89,8 @@ export async function sendSummary(stats) {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl) return;
 
-  // Wysyłaj podsumowanie tylko gdy były jakieś zmiany lub błędy
-  if (stats.priceDrops === 0 && stats.errors === 0) return;
+  // Wysyłaj podsumowanie tylko gdy były spadki cen lub PRAWDZIWE błędy (nie 403)
+  if (stats.priceDrops === 0 && stats.otherErrors === 0) return;
 
   const embed = {
     title: '📊 Podsumowanie sprawdzenia cen',

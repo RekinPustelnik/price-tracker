@@ -32,7 +32,8 @@ async function main() {
     checked: 0,
     priceDrops: 0,
     alerts: 0,
-    errors: 0,
+    blocked: 0,      // Błędy 403 (strona blokuje / wyczerpany limit API)
+    otherErrors: 0,   // Inne błędy (selektor nie działa, timeout, itp.)
   };
 
   // 2. Sprawdź cenę każdego produktu
@@ -42,14 +43,21 @@ async function main() {
     console.log(`  Selektor: ${product.selektor}`);
 
     // Scrapuj cenę
-    const newPrice = await scrapePrice(product.url, product.selektor);
+    const result = await scrapePrice(product.url, product.selektor);
 
-    if (newPrice === null) {
+    if (result === null) {
       console.error(`  ✗ Nie udało się pobrać ceny — pomijam`);
-      stats.errors++;
+      stats.otherErrors++;
       continue;
     }
 
+    if (result === 'BLOCKED') {
+      console.error(`  ✗ Strona zablokowana (403) — pomijam`);
+      stats.blocked++;
+      continue;
+    }
+
+    const newPrice = result;
     stats.checked++;
     const oldPrice = product.cena;
 
@@ -84,7 +92,7 @@ async function main() {
       console.log(`  ✓ Arkusz zaktualizowany`);
     } catch (err) {
       console.error(`  ✗ Błąd zapisu do Sheets: ${err.message}`);
-      stats.errors++;
+      stats.otherErrors++;
     }
 
     // Mała pauza między requestami żeby nie spamować
@@ -96,7 +104,8 @@ async function main() {
   console.log(`Sprawdzono: ${stats.checked}/${stats.total}`);
   console.log(`Spadki cen: ${stats.priceDrops}`);
   console.log(`Alerty: ${stats.alerts}`);
-  console.log(`Błędy: ${stats.errors}`);
+  console.log(`Zablokowane (403): ${stats.blocked}`);
+  console.log(`Inne błędy: ${stats.otherErrors}`);
 
   await sendSummary(stats);
 

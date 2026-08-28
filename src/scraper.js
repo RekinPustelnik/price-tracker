@@ -13,7 +13,6 @@ const USER_AGENTS = [
 ];
 
 const TIMEOUT_MS = 20_000;
-const MAX_RETRIES = 3;
 
 /**
  * Zwraca losowy User-Agent z listy.
@@ -24,7 +23,6 @@ function randomUserAgent() {
 
 /**
  * Buduje nagłówki udające prawdziwą przeglądarkę.
- * Wiele stron sprawdza te nagłówki i blokuje requesty bez nich.
  */
 function buildHeaders(url) {
   const origin = new URL(url).origin;
@@ -50,17 +48,13 @@ function buildHeaders(url) {
 
 /**
  * Pobiera stronę i wyciąga cenę za pomocą CSS selektora.
- *
- * @param {string} url - URL strony produktu
- * @param {string} selector - CSS selektor elementu z ceną
- * @returns {Promise<number|null>} Cena jako liczba lub null przy błędzie
+ * Zwraca: number (cena), 'BLOCKED' (same 403), lub null (inny błąd).
  */
 export async function scrapePrice(url, selector) {
   // FAZA 1: Spróbuj bezpośrednio (bez ScraperAPI)
-  // Wiele stron (zibru, desigual, perfectblue) działa bez proxy
   console.log(`  → Próba bezpośrednia...`);
   const directResult = await fetchAndParse(url, selector, buildHeaders(url), 2);
-  if (directResult !== null) return directResult;
+  if (directResult.price !== null) return directResult.price;
 
   // FAZA 2: Jeśli bezpośrednio nie wyszło — spróbuj przez ScraperAPI (jeśli mamy klucz)
   const scraperApiKey = process.env.SCRAPER_API_KEY;
@@ -68,26 +62,25 @@ export async function scrapePrice(url, selector) {
     console.log(`  → Próba przez ScraperAPI...`);
     const proxyUrl = `https://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}`;
     const proxyResult = await fetchAndParse(proxyUrl, selector, {}, 1);
-    if (proxyResult !== null) return proxyResult;
+    if (proxyResult.price !== null) return proxyResult.price;
 
-    // Jeśli ScraperAPI też zwróciło błąd — prawdopodobnie wyczerpany limit
     console.log(`  ⚠ ScraperAPI nie pomogło (możliwe wyczerpanie limitu)`);
   }
+
+  // Jeśli wszystkie błędy to 403 → zwróć 'BLOCKED' zamiast null
+  if (directResult.allBlocked) return 'BLOCKED';
 
   return null;
 }
 
 /**
  * Pomocnicza funkcja: pobiera HTML i parsuje cenę.
- * Wydzielona żeby można było ją wywołać osobno dla trybu bezpośredniego i proxy.
  *
- * @param {string} targetUrl - URL do pobrania (bezpośredni lub przez proxy)
- * @param {string} selector - CSS selektor ceny
- * @param {object} headers - Nagłówki HTTP
- * @param {number} maxRetries - Maksymalna liczba prób
- * @returns {Promise<number|null>}
+ * @returns {Promise<{price: number|null, allBlocked: boolean}>}
  */
 async function fetchAndParse(targetUrl, selector, headers, maxRetries) {
+  let allBlocked = true;
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const response = await fetch(targetUrl, {
@@ -97,8 +90,11 @@ async function fetchAndParse(targetUrl, selector, headers, maxRetries) {
       });
 
       if (!response.ok) {
+        if (response.status !== 403) allBlocked = false;
         throw new Error(`HTTP ${response.status} ${response.statusText}`);
       }
+
+      allBlocked = false;
 
       const html = await response.text();
       const $ = cheerio.load(html);
@@ -115,7 +111,7 @@ async function fetchAndParse(targetUrl, selector, headers, maxRetries) {
       }
 
       console.log(`  ✓ Cena: ${price} (tekst: "${rawText}")`);
-      return price;
+      return { price, allBlocked: false };
     } catch (err) {
       console.error(`  ✗ [Próba ${attempt}/${maxRetries}] ${err.message}`);
 
@@ -126,7 +122,7 @@ async function fetchAndParse(targetUrl, selector, headers, maxRetries) {
     }
   }
 
-  return null;
+  return { price: null, allBlocked };
 }
 
 /**
@@ -136,39 +132,27 @@ async function fetchAndParse(targetUrl, selector, headers, maxRetries) {
  *   "1,234.56"     →  1234.56
  *   "1234.56"      →  1234.56
  *   "1234,56"      →  1234.56
- *
- * @param {string} text - Surowy tekst ceny
- * @returns {number|null} Cena jako liczba lub null
  */
 export function parsePrice(text) {
-  // Usuń wszystko poza cyframi, kropkami, przecinkami
   let cleaned = text.replace(/[^\d.,]/g, '');
 
-  // Usuń kropki i przecinki z samego początku i końca (np. kropka na końcu zdania "239,99 zł.")
+  // Usuń kropki i przecinki z początku i końca (np. "239,99 zł." → "239,99")
   cleaned = cleaned.replace(/^[.,]+|[.,]+$/g, '');
 
   if (!cleaned) return null;
 
-  // Ustal separator dziesiętny:
-  // Jeśli jest i kropka i przecinek — ten który jest później to separator dziesiętny
   const lastComma = cleaned.lastIndexOf(',');
   const lastDot = cleaned.lastIndexOf('.');
 
   if (lastComma > lastDot) {
-    // Format: 1.234,56 lub 1234,56 (polski/europejski)
     cleaned = cleaned.replace(/\./g, '').replace(',', '.');
   } else if (lastDot > lastComma) {
-    // Format: 1,234.56 (angielski)
     cleaned = cleaned.replace(/,/g, '');
-  }
-  // Jeśli jest tylko jeden separator — sprawdź czy to dziesiętny
-  else if (lastComma !== -1 && lastDot === -1) {
-    // Tylko przecinek — jeśli ma 1-2 cyfry po nim, to separator dziesiętny
+  } else if (lastComma !== -1 && lastDot === -1) {
     const afterComma = cleaned.split(',')[1];
     if (afterComma && afterComma.length <= 2) {
       cleaned = cleaned.replace(',', '.');
     } else {
-      // Przecinek jako separator tysięcy (np. "1,234")
       cleaned = cleaned.replace(',', '');
     }
   }
