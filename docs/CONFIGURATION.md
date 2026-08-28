@@ -121,25 +121,19 @@ Aby skrypt działał automatycznie w chmurze bez konieczności uruchamiania Twoj
 
 ## Krok 6: Dostosowanie Częstotliwości (Cron)
 
-Domyślnie skrypt uruchamiany jest **co 12 godzin** (plik [.github/workflows/price-check.yml](file:///d:/Programowanie/price-tracker/.github/workflows/price-check.yml)), aby chronić limity zapytań i darmowe pule ScraperAPI.
+W projekcie działają teraz **dwa zautomatyzowane obiegi (workflows)**, co pozwala oszczędzać kredyty ScraperAPI przy jednoczesnym, częstym sprawdzaniu "łatwych" sklepów.
 
-Możesz dowolnie zmienić harmonogram, modyfikując linijkę `cron:`:
+1. **Obieg Pełny (`.github/workflows/price-check-full.yml`)**
+   - **Domyślny harmonogram:** Dwa razy dziennie (o 8:00 i 20:00).
+   - `cron: '0 8,20 * * *'`
+   - **Jak działa:** Wykorzystuje ScraperAPI (jeśli dodano klucz `SCRAPER_API_KEY`) aby ominąć zabezpieczenia sklepów.
 
-```yaml
-on:
-  schedule:
-    - cron: '0 */12 * * *'  # Domyślnie: co 12 godzin
-```
+2. **Obieg Szybki (`.github/workflows/price-check-fast.yml`)**
+   - **Domyślny harmonogram:** Co godzinę, z wyłączeniem 8:00 i 20:00.
+   - `cron: '0 0-7,9-19,21-23 * * *'`
+   - **Jak działa:** Działa bez ScraperAPI. Sprawdza sklepy. Jeśli jakiś sklep go zablokuje, cicho ignoruje ten produkt (nie zużywając limitów i nie spamując błędami na Discord).
 
-### Przykłady konfiguracji cron:
-
-| Częstotliwość | Zapis Cron | Uwagi |
-|---|---|---|
-| Co 12 godzin | `0 */12 * * *` | *(Zalecane)* Rano i wieczorem, bezpieczne dla limitów |
-| Co 6 godzin | `0 */6 * * *` | 4 razy na dobę |
-| Raz dziennie o 8:00 UTC | `0 8 * * *` | Stała pora każdego dnia |
-| Co 1 godzinę | `0 * * * *` | Sprawdza co godzinę |
-| Co 30 minut | `*/30 * * * *` | Wysoka częstotliwość |
+Możesz dowolnie zmieniać te harmonogramy, edytując odpowiednie pliki `.yml` i modyfikując linijkę `cron:`.
 
 ---
 

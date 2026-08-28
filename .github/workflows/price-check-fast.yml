@@ -1,14 +1,14 @@
-name: Sprawdź ceny
+name: 🚀 Sprawdź ceny (Szybko - Bez API)
 
 on:
   schedule:
-    # Co 12 godzin (2 razy dziennie), żeby nie zużyć darmowego limitu ScraperAPI
-    - cron: '0 */12 * * *'
+    # Uruchamia się o równej godzinie przez cały dzień Z WYJĄTKIEM 8:00 i 20:00 (kiedy działa pełna akcja)
+    - cron: '0 0-7,9-19,21-23 * * *'
   # Możliwość ręcznego uruchomienia z zakładki Actions
   workflow_dispatch:
 
 jobs:
-  check-prices:
+  check-prices-fast:
     runs-on: ubuntu-latest
 
     steps:
@@ -24,11 +24,11 @@ jobs:
       - name: Instaluj zależności
         run: npm ci
 
-      - name: Sprawdź ceny produktów
+      - name: Sprawdź ceny produktów (Szybki tryb)
         env:
           GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
           GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
           SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
+          # BRAK SECRETU SCRAPER_API_KEY - zablokowane strony zostaną pominięte bez użycia API
         run: npm run check

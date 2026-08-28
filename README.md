@@ -124,7 +124,8 @@ npm run check
 price-tracker/
 ├── .github/
 │   └── workflows/
-│       └── price-check.yml   # Konfiguracja GitHub Actions CI/CD
+│       ├── price-check-full.yml  # Obieg pełny (z użyciem ScraperAPI)
+│       └── price-check-fast.yml  # Obieg szybki (bez ScraperAPI, pomija blokady)
 ├── docs/                     # Dokumentacja szczegółowa
 │   ├── ARCHITECTURE.md       # Architektura, przepływ danych, moduły
 │   ├── CONFIGURATION.md      # Instrukcja konfiguracji usług krok po kroku
@@ -146,7 +147,10 @@ price-tracker/
 <details>
 <summary><b>Jak często skrypt sprawdza ceny?</b></summary>
 
-Domyślnie skrypt uruchamia się **co 12 godzin** (`0 */12 * * *` w pliku `.github/workflows/price-check.yml`). Możesz dowolnie zmienić ten harmonogram, np. na co 1 godzinę lub 30 minut — zobacz [Instrukcję Konfiguracji](docs/CONFIGURATION.md#krok-6-dostosowanie-cz%C4%99stotliwo%C5%9Bci-cron).
+Domyślnie projekt posiada dwa niezależne obiegi (workflows):
+1. **Pełny** (`.github/workflows/price-check-full.yml`) uruchamia się **2 razy dziennie** (o 8:00 i 20:00) i korzysta ze ScraperAPI (jeśli dodano klucz).
+2. **Szybki** (`.github/workflows/price-check-fast.yml`) uruchamia się **co godzinę** i sprawdza tylko sklepy łatwo dostępne (bez użycia ScraperAPI).
+Możesz dowolnie zmieniać te harmonogramy — zobacz [Instrukcję Konfiguracji](docs/CONFIGURATION.md#krok-6-dostosowanie-częstotliwości-cron).
 </details>
 
 <details>

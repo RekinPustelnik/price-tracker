@@ -1,0 +1,35 @@
+name: 👑 Sprawdź ceny (Pełny - Z API)
+
+on:
+  schedule:
+    # Uruchamia się dwa razy dziennie - o 8:00 i 20:00 UTC
+    - cron: '0 8,20 * * *'
+  # Możliwość ręcznego uruchomienia z zakładki Actions
+  workflow_dispatch:
+
+jobs:
+  check-prices-full:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repozytorium
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instaluj zależności
+        run: npm ci
+
+      - name: Sprawdź ceny produktów (Pełny tryb)
+        env:
+          GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+          GOOGLE_PRIVATE_KEY: ${{ secrets.GOOGLE_PRIVATE_KEY }}
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          # Aktywne proxy z użyciem zewnętrznego API dla trudnych sklepów
+          SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
+        run: npm run check
