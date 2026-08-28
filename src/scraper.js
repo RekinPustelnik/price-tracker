@@ -90,7 +90,11 @@ async function fetchAndParse(targetUrl, selector, headers, maxRetries) {
       });
 
       if (!response.ok) {
-        if (response.status !== 403) allBlocked = false;
+        // Systemy antybotowe (Cloudflare, Akamai) mogą zwracać różne kody, nie tylko 403.
+        const blockedCodes = [400, 401, 403, 406, 429, 503];
+        if (!blockedCodes.includes(response.status)) {
+          allBlocked = false;
+        }
         throw new Error(`HTTP ${response.status} ${response.statusText}`);
       }
 

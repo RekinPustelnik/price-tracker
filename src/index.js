@@ -52,7 +52,7 @@ async function main() {
     }
 
     if (result === 'BLOCKED') {
-      console.error(`  ✗ Strona zablokowana (403) — pomijam`);
+      console.error(`  ✗ Strona zablokowana (Anti-bot) — pomijam`);
       stats.blocked++;
       continue;
     }
@@ -104,7 +104,7 @@ async function main() {
   console.log(`Sprawdzono: ${stats.checked}/${stats.total}`);
   console.log(`Spadki cen: ${stats.priceDrops}`);
   console.log(`Alerty: ${stats.alerts}`);
-  console.log(`Zablokowane (403): ${stats.blocked}`);
+  console.log(`Zablokowane (Anti-bot): ${stats.blocked}`);
   console.log(`Inne błędy: ${stats.otherErrors}`);
 
   await sendSummary(stats);
