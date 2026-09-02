@@ -3,8 +3,10 @@
 // =============================================================================
 
 import { scrapePrice } from './scraper.js';
-import { getProducts, updatePrice } from './sheets.js';
-import { sendPriceAlert, sendSummary } from './discord.js';
+import { getProducts, updatePrice, incrementErrorCount } from './sheets.js';
+import { sendPriceAlert, sendErrorAlert, sendSummary } from './discord.js';
+
+const ERROR_ALERT_THRESHOLD = 5; // Wyślij alert po tylu błędach z rzędu
 
 async function main() {
   console.log('=== Price Tracker — Start ===');
@@ -32,8 +34,8 @@ async function main() {
     checked: 0,
     priceDrops: 0,
     alerts: 0,
-    blocked: 0,      // Błędy 403 (strona blokuje / wyczerpany limit API)
-    otherErrors: 0,   // Inne błędy (selektor nie działa, timeout, itp.)
+    blocked: 0,
+    otherErrors: 0,
   };
 
   // 2. Sprawdź cenę każdego produktu
@@ -41,23 +43,41 @@ async function main() {
     console.log(`\n[${product.nazwa}]`);
     console.log(`  URL: ${product.url}`);
     console.log(`  Selektor: ${product.selektor}`);
+    console.log(`  Błędy z rzędu: ${product.bledyZRzedu}`);
 
     // Scrapuj cenę
     const result = await scrapePrice(product.url, product.selektor);
 
-    if (result === null) {
-      console.error(`  ✗ Nie udało się pobrać ceny — pomijam`);
-      stats.otherErrors++;
-      continue;
-    }
-
-    if (result === 'BLOCKED') {
+    // --- Obsługa błędów ---
+    if (result.blocked) {
       console.error(`  ✗ Strona zablokowana (Anti-bot) — pomijam`);
       stats.blocked++;
       continue;
     }
 
-    const newPrice = result;
+    if (result.error) {
+      console.error(`  ✗ Nie udało się pobrać ceny — pomijam`);
+      stats.otherErrors++;
+
+      // Zwiększ licznik błędów w arkuszu
+      try {
+        const newCount = await incrementErrorCount(product.row, product.bledyZRzedu);
+        console.log(`  📊 Błędy z rzędu: ${newCount}`);
+
+        // Wyślij alert na Discord dopiero po osiągnięciu progu
+        // (i potem co kolejne 5, żeby nie spamować)
+        if (newCount >= ERROR_ALERT_THRESHOLD && newCount % ERROR_ALERT_THRESHOLD === 0) {
+          await sendErrorAlert(product, newCount, result.error);
+        }
+      } catch (sheetErr) {
+        console.error(`  ✗ Błąd zapisu licznika: ${sheetErr.message}`);
+      }
+
+      continue;
+    }
+
+    // --- Sukces ---
+    const newPrice = result.price;
     stats.checked++;
     const oldPrice = product.cena;
 
@@ -86,10 +106,13 @@ async function main() {
       console.log(`  📈 Cena wzrosła: ${oldPrice} → ${newPrice}`);
     }
 
-    // 4. Zapisz cenę do arkusza
+    // 4. Zapisz cenę do arkusza (zeruje też licznik błędów)
     try {
       await updatePrice(product.row, newPrice, product.najnizsza);
       console.log(`  ✓ Arkusz zaktualizowany`);
+      if (product.bledyZRzedu > 0) {
+        console.log(`  ✓ Licznik błędów zresetowany (było: ${product.bledyZRzedu})`);
+      }
     } catch (err) {
       console.error(`  ✗ Błąd zapisu do Sheets: ${err.message}`);
       stats.otherErrors++;

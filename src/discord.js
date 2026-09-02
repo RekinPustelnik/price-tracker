@@ -76,22 +76,61 @@ export async function sendPriceAlert(product, oldPrice, newPrice, isBelowAlert) 
 }
 
 /**
- * Wysyła podsumowanie po sprawdzeniu wszystkich produktów.
+ * Wysyła alert o powtarzających się błędach scrapowania na Discord.
  *
- * @param {object} stats - Statystyki sprawdzenia
- * @param {number} stats.total - Łączna liczba produktów
- * @param {number} stats.checked - Sprawdzonych pomyślnie
- * @param {number} stats.priceDrops - Spadki cen
- * @param {number} stats.alerts - Alerty (poniżej progu)
- * @param {number} stats.otherErrors - Błędy inne niż 403
- * @param {number} stats.blocked - Błędy 403 (zablokowane)
+ * @param {object} product - Dane produktu z arkusza
+ * @param {number} errorCount - Ile razy z rzędu wystąpił błąd
+ * @param {string} errorMessage - Opis ostatniego błędu
+ */
+export async function sendErrorAlert(product, errorCount, errorMessage) {
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+  if (!webhookUrl) return;
+
+  const embed = {
+    title: '⚠️ Powtarzający się błąd scrapowania',
+    description: `**[${product.nazwa}](${product.url})**`,
+    color: 0xff9800, // pomarańczowy
+    fields: [
+      {
+        name: 'Błędów z rzędu',
+        value: `${errorCount}`,
+        inline: true,
+      },
+      {
+        name: 'Selektor',
+        value: `\`${product.selektor}\``,
+        inline: true,
+      },
+      {
+        name: 'Ostatni błąd',
+        value: errorMessage.substring(0, 200), // Ograniczenie do 200 znaków
+      },
+    ],
+    footer: { text: 'Price Tracker — Sprawdź czy selektor jest nadal aktualny!' },
+    timestamp: new Date().toISOString(),
+  };
+
+  try {
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ embeds: [embed] }),
+    });
+    console.log('  ✓ Alert o błędach wysłany na Discord');
+  } catch (err) {
+    console.error(`  ✗ Błąd Discord webhook: ${err.message}`);
+  }
+}
+
+/**
+ * Wysyła podsumowanie po sprawdzeniu wszystkich produktów.
  */
 export async function sendSummary(stats) {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl) return;
 
-  // Wysyłaj podsumowanie tylko gdy były spadki cen lub PRAWDZIWE błędy (nie 403)
-  if (stats.priceDrops === 0 && stats.otherErrors === 0) return;
+  // Wysyłaj podsumowanie tylko gdy były spadki cen
+  if (stats.priceDrops === 0) return;
 
   const embed = {
     title: '📊 Podsumowanie sprawdzenia cen',
@@ -100,8 +139,6 @@ export async function sendSummary(stats) {
       { name: 'Sprawdzono', value: `${stats.checked}/${stats.total}`, inline: true },
       { name: 'Spadki cen', value: `${stats.priceDrops}`, inline: true },
       { name: 'Alerty', value: `${stats.alerts}`, inline: true },
-      { name: 'Zablokowane', value: `${stats.blocked}`, inline: true },
-      { name: 'Inne błędy', value: `${stats.otherErrors}`, inline: true },
     ],
     footer: { text: 'Price Tracker' },
     timestamp: new Date().toISOString(),

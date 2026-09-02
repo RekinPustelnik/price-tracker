@@ -13,6 +13,7 @@ const COLUMNS = {
   NAJNIZSZA: 4,          // E
   ALERT_PONIZEJ: 5,      // F
   OSTATNIE_SPRAWDZENIE: 6, // G
+  BLEDY_Z_RZEDU: 7,      // H
 };
 
 /**
@@ -47,16 +48,6 @@ function parseSheetNumber(val) {
 
 /**
  * Pobiera listę produktów z arkusza (pomija wiersz nagłówkowy).
- *
- * @returns {Promise<Array<{
- *   row: number,
- *   nazwa: string,
- *   url: string,
- *   selektor: string,
- *   cena: number|null,
- *   najnizsza: number|null,
- *   alertPonizej: number|null
- * }>>}
  */
 export async function getProducts() {
   const sheets = await getSheetsClient();
@@ -64,7 +55,7 @@ export async function getProducts() {
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: 'A2:G1000', // Pomijamy wiersz 1 (nagłówki), max 999 produktów
+    range: 'A2:H1000', // Pomijamy wiersz 1 (nagłówki), max 999 produktów
   });
 
   const rows = response.data.values || [];
@@ -78,12 +69,13 @@ export async function getProducts() {
       cena: parseSheetNumber(row[COLUMNS.CENA]),
       najnizsza: parseSheetNumber(row[COLUMNS.NAJNIZSZA]),
       alertPonizej: parseSheetNumber(row[COLUMNS.ALERT_PONIZEJ]),
+      bledyZRzedu: parseInt(row[COLUMNS.BLEDY_Z_RZEDU], 10) || 0,
     }))
     .filter((p) => p.nazwa && p.url && p.selektor); // Filtruj puste/niekompletne wiersze
 }
 
 /**
- * Aktualizuje cenę, najniższą cenę i datę sprawdzenia dla jednego produktu.
+ * Aktualizuje cenę, najniższą cenę, datę sprawdzenia i zeruje licznik błędów.
  *
  * @param {number} row - Numer wiersza w arkuszu (1-indexed)
  * @param {number} newPrice - Nowa cena
@@ -96,7 +88,7 @@ export async function updatePrice(row, newPrice, currentLowest) {
   const now = new Date().toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw' });
   const lowest = currentLowest === null ? newPrice : Math.min(currentLowest, newPrice);
 
-  // Aktualizujemy kolumny D, E, G (Cena, Najniższa, Ostatnie sprawdzenie)
+  // Aktualizujemy kolumny D, E, G, H (Cena, Najniższa, Ostatnie sprawdzenie, Błędy z rzędu = 0)
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId,
     requestBody: {
@@ -114,7 +106,45 @@ export async function updatePrice(row, newPrice, currentLowest) {
           range: `G${row}`, // Ostatnie sprawdzenie
           values: [[now]],
         },
+        {
+          range: `H${row}`, // Błędy z rzędu — resetuj do 0
+          values: [[0]],
+        },
       ],
     },
   });
+}
+
+/**
+ * Zwiększa licznik błędów z rzędu dla danego produktu.
+ *
+ * @param {number} row - Numer wiersza w arkuszu (1-indexed)
+ * @param {number} currentCount - Aktualny licznik błędów
+ * @returns {number} Nowa wartość licznika
+ */
+export async function incrementErrorCount(row, currentCount) {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = process.env.SPREADSHEET_ID;
+
+  const newCount = currentCount + 1;
+  const now = new Date().toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw' });
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      valueInputOption: 'USER_ENTERED',
+      data: [
+        {
+          range: `G${row}`, // Ostatnie sprawdzenie
+          values: [[now]],
+        },
+        {
+          range: `H${row}`, // Błędy z rzędu
+          values: [[newCount]],
+        },
+      ],
+    },
+  });
+
+  return newCount;
 }

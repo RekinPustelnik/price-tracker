@@ -48,13 +48,19 @@ function buildHeaders(url) {
 
 /**
  * Pobiera stronę i wyciąga cenę za pomocą CSS selektora.
- * Zwraca: number (cena), 'BLOCKED' (same 403), lub null (inny błąd).
+ *
+ * @returns {{ price: number, blocked: false, error: null }
+ *         | { price: null, blocked: true, error: null }
+ *         | { price: null, blocked: false, error: string }}
  */
 export async function scrapePrice(url, selector) {
+  let lastError = '';
+
   // FAZA 1: Spróbuj bezpośrednio (bez ScraperAPI)
   console.log(`  → Próba bezpośrednia...`);
   const directResult = await fetchAndParse(url, selector, buildHeaders(url), 2);
-  if (directResult.price !== null) return directResult.price;
+  if (directResult.price !== null) return { price: directResult.price, blocked: false, error: null };
+  lastError = directResult.lastError;
 
   // FAZA 2: Jeśli bezpośrednio nie wyszło — spróbuj przez ScraperAPI (jeśli mamy klucz)
   const scraperApiKey = process.env.SCRAPER_API_KEY;
@@ -62,24 +68,28 @@ export async function scrapePrice(url, selector) {
     console.log(`  → Próba przez ScraperAPI...`);
     const proxyUrl = `https://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}`;
     const proxyResult = await fetchAndParse(proxyUrl, selector, {}, 1);
-    if (proxyResult.price !== null) return proxyResult.price;
+    if (proxyResult.price !== null) return { price: proxyResult.price, blocked: false, error: null };
+    // Użyj błędu z proxy tylko jeśli nie jest to problem z samym proxy
+    if (!proxyResult.allBlocked) lastError = proxyResult.lastError;
 
     console.log(`  ⚠ ScraperAPI nie pomogło (możliwe wyczerpanie limitu)`);
   }
 
-  // Jeśli wszystkie błędy to 403 → zwróć 'BLOCKED' zamiast null
-  if (directResult.allBlocked) return 'BLOCKED';
+  // Jeśli wszystkie błędy to anti-bot → zablokowany
+  if (directResult.allBlocked) return { price: null, blocked: true, error: null };
 
-  return null;
+  // Inny błąd → zwróć opis
+  return { price: null, blocked: false, error: lastError };
 }
 
 /**
  * Pomocnicza funkcja: pobiera HTML i parsuje cenę.
  *
- * @returns {Promise<{price: number|null, allBlocked: boolean}>}
+ * @returns {Promise<{price: number|null, allBlocked: boolean, lastError: string}>}
  */
 async function fetchAndParse(targetUrl, selector, headers, maxRetries) {
   let allBlocked = true;
+  let lastError = '';
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -90,7 +100,6 @@ async function fetchAndParse(targetUrl, selector, headers, maxRetries) {
       });
 
       if (!response.ok) {
-        // Systemy antybotowe (Cloudflare, Akamai) mogą zwracać różne kody, nie tylko 403.
         const blockedCodes = [400, 401, 403, 406, 429, 503];
         if (!blockedCodes.includes(response.status)) {
           allBlocked = false;
@@ -115,8 +124,9 @@ async function fetchAndParse(targetUrl, selector, headers, maxRetries) {
       }
 
       console.log(`  ✓ Cena: ${price} (tekst: "${rawText}")`);
-      return { price, allBlocked: false };
+      return { price, allBlocked: false, lastError: '' };
     } catch (err) {
+      lastError = err.message;
       console.error(`  ✗ [Próba ${attempt}/${maxRetries}] ${err.message}`);
 
       if (attempt < maxRetries) {
@@ -126,7 +136,7 @@ async function fetchAndParse(targetUrl, selector, headers, maxRetries) {
     }
   }
 
-  return { price: null, allBlocked };
+  return { price: null, allBlocked, lastError };
 }
 
 /**
