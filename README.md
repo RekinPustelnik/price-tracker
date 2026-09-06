@@ -50,13 +50,35 @@ Szczegółowe poradniki i dokumentacja techniczna znajdują się w katalogu `doc
 ## 🚀 Szybki start (Konfiguracja w 10 minut)
 
 ### 1. Przygotuj arkusz Google Sheets
-Utwórz nowy arkusz z nagłówkami w wierszu 1:
+W arkuszu przygotuj dwie zakładki o nazwach **`Produkty`** oraz **`Domeny`**:
+
+#### Zakładka 1: `Produkty` (Monitorowane artykuły)
+Nagłówki w wierszu 1 (od A do M):
 
 | A | B | C | D | E | F | G | H | I | J | K | L | M |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **Nazwa** | **URL** | **Selektor Ceny** | **Selektor Rabatu** | **Cena bez rabatu** | **Rabat** | **Cena z rabatem** | **Najniższa (bez rabatu)** | **Najniższa (z rabatem)** | **Największy rabat** | **Alert poniżej** | **Ostatnie sprawdzenie** | **Błędy z rzędu** |
+| **Nazwa** | **URL** | **Selektor Ceny** | **Selektor Rabatu** | **Cena bez rabatu** | **Rabat** | **Cena z rabatem** | **Najniższa bez rabatu** | **Najniższa z rabatem** | **Największy zarejestrowany rabat** | **Alert poniżej** | **Ostatnie sprawdzenie** | **Licznik błędów** |
 
-Wypełnij kolumny **A**, **B**, **C**, opcjonalnie **D** (jeśli na stronie są rabaty) oraz **K** (próg powiadomienia priorytetowego). Kolumny od **E do J** oraz **L i M** wypełnia automat w trakcie działania.
+- **Wypełniasz ręcznie**:
+  - **A (Nazwa)** i **B (URL)** — wymagane dla każdego wiersza.
+  - **C (Selektor Ceny)** i **D (Selektor Rabatu)** — opcjonalne! Jeśli pozostawisz puste, skrypt automatycznie pobierze domyślny selektor z zakładki `Domeny`.
+  - **K (Alert poniżej)** — opcjonalna kwota wyzwalająca alert priorytetowy 🚨.
+- **Wypełnia automat**:
+  - Kolumny **E–J** (aktualne ceny bazowe, rabaty wyliczone kwotowo/procentowo, ceny po rabacie, historia najniższych cen i najlepszy rabat).
+  - Kolumny **L–M** (data ostatniego sprawdzenia oraz licznik kolejnych nieudanych prób pobrania).
+
+#### Zakładka 2: `Domeny` (Domyślne selektory per sklep)
+Nagłówki w wierszu 1:
+
+| A | B | C | D |
+|---|---|---|---|
+| **Domena** | **Selektor Ceny** | **Selektor Rabatu** | **Uwagi** |
+
+Przykładowe konfiguracje:
+- `footshop.pl` | `[itemprop="price"]` | *(puste)*
+- `modivo.pl` | `price > .price-container > .price-wrapper` | `promotion-badge`
+- `wojas.pl` | `#priceSelected` | `.box-list-product-code`
+- `zalando.pl` | `[data-testid="pdp-price-container"] span` | *(puste)*
 
 ### 2. Utwórz Google Cloud Service Account
 1. Wejdź na [Google Cloud Console](https://console.cloud.google.com/), stwórz projekt i włącz **Google Sheets API**.

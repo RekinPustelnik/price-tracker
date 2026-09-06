@@ -41,7 +41,7 @@ document.querySelector('.product-price .price-normal').textContent.trim()
 // Powinno zwrócić np.: "2 499,00 zł"
 ```
 
-Jeśli polecenie zwraca poprawny tekst zawierający cenę, selektor nadaje się do wpisania w kolumnie **C (Selektor)** w Twoim arkuszu Google Sheets.
+Jeśli polecenie zwraca poprawny tekst zawierający cenę, selektor nadaje się do wpisania w zakładce **`Domeny` (kolumna B — Selektor Ceny)** lub bezpośrednio w zakładce **`Produkty` (kolumna C — Selektor ceny override)**.
 
 ---
 
@@ -49,7 +49,7 @@ Jeśli polecenie zwraca poprawny tekst zawierający cenę, selektor nadaje się 
 
 | Jakość | Przykładowy selektor | Dlaczego? |
 |---|---|---|
-| 🟢 **Doskonały** | `[data-price]` lub `[itemprop="price"]` | Opiera się na semantyce danych lub mikrodanych Schema.org; rzadko zmienia się przy redesignie sklepu. |
+| 🟢 **Doskonały** | `[itemprop="price"]` | Opiera się na semantyce Schema.org; rzadko zmienia się przy redesignie sklepu. |
 | 🟢 **Bardzo dobry** | `.main-price__value`, `.product-price` | Wykorzystuje dedykowane, unikalne klasy komponentu cenowego. |
 | 🟡 **Przeciętny** | `div.prices > span:first-child` | Może przestać działać, jeśli sklep doda np. etykietę "Promocja" lub "Najniższa cena z 30 dni". |
 | 🔴 **Zły (kruchy)** | `#app > div:nth-child(2) > div:nth-child(4) > span:nth-child(3)` | Bardzo kruchy; dowolna zmiana struktury strony natychmiast go unieważni. |
@@ -58,7 +58,7 @@ Jeśli polecenie zwraca poprawny tekst zawierający cenę, selektor nadaje się 
 
 ## 4. Jak działa algorytm `parsePrice()`?
 
-Funkcja `parsePrice(text)` zdefiniowana w [src/scraper.js](file:///d:/Programowanie/price-tracker/src/scraper.js#L136-L162) została zoptymalizowana pod kątem różnorodnych standardów formatowania cen w polskich i międzynarodowych sklepach:
+Funkcja `parsePrice(text)` zdefiniowana w [src/scraper.js](file:///D:/Programowanie/price-tracker/src/scraper.js) została zoptymalizowana pod kątem różnorodnych standardów formatowania cen w polskich i międzynarodowych sklepach:
 
 ### Przykłady konwersji:
 
@@ -71,49 +71,55 @@ Funkcja `parsePrice(text)` zdefiniowana w [src/scraper.js](file:///d:/Programowa
 | `"  49,00  "` | Przycięcie białych znaków, zamiana `,` na `.` | `49.00` |
 | `"99 zł"` | Liczba całkowita | `99` |
 
-### Logika algorytmu:
-1. Usuwa wszystkie znaki poza cyframi, przecinkami i kropkami (`/[^\d.,]/g`).
-2. Usuwa ewentualne kropki i przecinki znajdujące się na samym początku lub końcu ciągu.
-3. Sprawdza pozycję ostatniego przecinka i ostatniej kropki:
-   - Jeśli ostatni przecinek występuje **po** ostatniej kropce (standard PL/EU, np. `1.299,00`), usuwa kropki, a przecinek zamienia na kropkę dziesiętną.
-   - Jeśli ostatnia kropka występuje **po** ostatnim przecinku (standard US/UK, np. `1,299.00`), usuwa przecinki.
-   - Jeśli występuje tylko przecinek, a po nim są maksymalnie 2 cyfry (np. `199,99`), jest on traktowany jako separator części ułamkowej.
+---
+
+## 5. Jak działa ekstrakcja rabatów (`parseDiscountDomain`)?
+
+Skrypt umożliwia podanie selektora rabatu w kolumnie **C zakładki `Domeny`** (lub nadpisanie w kolumnie **D zakładki `Produkty`**). Odczytany tekst jest przetwarzany w zależności od domeny:
+
+1. **Wojas (`wojas.pl`)**:
+   - Sklep podaje informację np. *"Ten produkt kupisz za 181.30 zł z kodem EXTRA30"*.
+   - Skrypt wyciąga z tekstu kwotę `181.30` oraz kod rabatowy `EXTRA30` i traktuje tę kwotę jako bezpośrednią cenę finalną po rabacie.
+2. **Modivo (`modivo.pl`)**:
+   - Sklep wyświetla badge np. *"extra -20% Kod: SEPT"*.
+   - Skrypt wyciąga wartość procentową (`20%`) oraz kod promocyjny, a następnie sam oblicza cenę po rabacie z ceny bazowej.
+3. **Logika domyślna (dla pozostałych sklepów)**:
+   - Skrypt sprawdza, czy tekst zawiera znak `%`.
+   - Jeśli tak, oblicza obniżkę procentową.
+   - Jeśli nie, wyszukuje pierwszą liczbę w tekście (np. z ciągu `EXTRA30` wyciągnie `30`) lub traktuje kwotę jako rabat stały.
 
 ---
 
-## 5. Przykładowe selektory dla popularnych sklepów
+## 6. Przykładowe sprawdzone selektory
 
-> [!WARNING]
-> Poniższe selektory stanowią punkty wyjścia. Sklepy internetowe regularnie aktualizują swój kod HTML, dlatego zawsze warto zweryfikować selektor w DevTools przed dodaniem go do arkusza.
-
-| Sklep | Przykładowy selektor CSS | Uwagi |
-|---|---|---|
-| **x-kom.pl** | `.product-price` lub `[data-price]` | Czasem wymaga ScraperAPI przy intensywnych zapytaniach. |
-| **morele.net** | `.product-price` lub `#product_price` | Korzysta z ochrony Cloudflare; zalecany `SCRAPER_API_KEY`. |
-| **mediaexpert.pl** | `.is-price` lub `.main-price .whole` | Może rozbijać złote i grosze na osobne tagi `span`. |
-| **euro.com.pl** | `.product-price .price-normal` | Stabilna struktura klas. |
-| **amazon.pl / .com** | `.a-price .a-offscreen` | Amazon ukrywa pełną cenę dla czytników ekranowych w `.a-offscreen`. |
-| **ceneo.pl** | `.product-offer__price .price` | Dobry do śledzenia najniższej oferty z porównywarki. |
-| **allegro.pl** | `[itemprop="price"]` lub `[data-box-name="Price"]` | Warto szukać mikrodanych Schema. |
+| Sklep | Selektor Ceny | Selektor Rabatu | Uwagi |
+|---|---|---|---|
+| **footshop.pl** | `[itemprop="price"]` | — | Pobiera cenę z mikrodanych Schema. |
+| **modivo.pl** | `price > .price-container > .price-wrapper` | `promotion-badge` | Pobiera bazę i badge rabatowy. |
+| **wojas.pl** | `#priceSelected` | `.box-list-product-code` | Wyciąga cenę z kodem EXTRA. |
+| **zalando.pl** | `[data-testid="pdp-price-container"] span` | — | Wymaga ScraperAPI (tryb pełny). |
+| **perfectblue.pl** | `p.price ins .amount, p.price .amount` | — | Obsługuje motyw Flatsome/WooCommerce. |
+| **answear.com** | `[class*="Price__wrapper__"] [class*="priceSale"] span, [class*="Price__wrapper__"] [class*="priceRegular"]` | — | Dynamiczne klasy styli CSS. |
+| **zibru.com** | `.price-item` | — | Standardowy Shopify. |
 
 ---
 
-## 6. Typowe problemy i ich rozwiązywanie
+## 7. Typowe problemy i ich rozwiązywanie
 
 ### Problem 1: Cena zwraca `null` (brak elementu w HTML)
 - **Przyczyna**: Strona to aplikacja Single Page Application (SPA), która ładuje cenę asynchronicznie przez JavaScript/API dopiero po załadowaniu szkieletu HTML.
 - **Rozwiązanie**:
   1. Wyłącz JavaScript w przeglądarce (DevTools → Settings → Disable JavaScript) i odśwież stronę.
   2. Sprawdź, czy cena nadal widnieje w kodzie źródłowym (`Ctrl + U`).
-  3. Jeśli nie, poszukaj tagów meta w nagłówku strony, np. `<meta property="product:price:amount" content="199.99">` — selektor: `meta[property="product:price:amount"]` (wtedy pobierana jest wartość atrybutu).
+  3. Jeśli element z ceną jest renderowany przez JS, a w źródle go nie ma, poszukaj tagów zawierających dane JSON (np. `application/ld+json`).
 
 ### Problem 2: Błąd `403 Forbidden` / `BLOCKED`
-- **Przyczyna**: System antybotowy sklepu (np. Cloudflare Bot Management) rozpoznał adres IP GitHub Actions.
+- **Przyczyna**: System antybotowy sklepu (np. Cloudflare Bot Management) rozpoznał zapytanie.
 - **Rozwiązanie**:
-  1. Upewnij się, że masz skonfigurowany sekret `SCRAPER_API_KEY`.
-  2. Bot automatycznie przekieruje nieudane zapytanie przez ScraperAPI.
+  1. Upewnij się, że masz skonfigurowany sekret `SCRAPER_API_KEY` w repozytorium GitHub.
+  2. Obieg pełny (`price-check-full.yml`) automatycznie przekieruje nieudane zapytanie przez proxy ScraperAPI.
 
-### Problem 3: Selektor zwraca cenę wariantu lub raty zamiast ceny produktu
+### Problem 3: Selektor zwraca złą cenę (np. cenę wariantu lub raty)
 - **Przyczyna**: Zbyt ogólny selektor (np. `span.price`), który dopasował pierwszą cenę na stronie (np. "Rata od 25 zł/mies.").
 - **Rozwiązanie**:
-  - Zawęź selektor, dodając klasę kontenera głównego, np. `.product-main-info .product-price`.
+  - Zawęź selektor, dodając klasę kontenera głównego produktu, np. `.product-main-info .product-price`.

@@ -50,24 +50,45 @@ async function main() {
     if (!selectorCeny) {
         console.error(`  ✗ Brak selektora ceny (ani nadpisanego, ani domyślnego dla domeny) — pomijam`);
         stats.otherErrors++;
+        try {
+          const newCount = await incrementErrorCount(product.row, product.bledyZRzedu);
+          if (newCount >= ERROR_ALERT_THRESHOLD && newCount % ERROR_ALERT_THRESHOLD === 0) {
+            await sendErrorAlert(product, newCount, 'Brak selektora ceny (brak w arkuszu Produkty i Domeny)', '(brak)');
+          }
+        } catch (sheetErr) {
+          console.error(`  ✗ Błąd zapisu licznika: ${sheetErr.message}`);
+        }
         continue;
     }
 
     const result = await scrapePrice(product.url, selectorCeny, selectorRabatu, hostname);
 
     if (result.blocked) {
-      console.error(`  ✗ Strona zablokowana (Anti-bot) — pomijam`);
+      const isFullMode = Boolean(process.env.SCRAPER_API_KEY);
       stats.blocked++;
+      if (isFullMode) {
+        console.error(`  ✗ Strona zablokowana (Anti-bot) w trybie pełnym — zwiększam licznik błędów`);
+        try {
+          const newCount = await incrementErrorCount(product.row, product.bledyZRzedu);
+          if (newCount >= ERROR_ALERT_THRESHOLD && newCount % ERROR_ALERT_THRESHOLD === 0) {
+            await sendErrorAlert(product, newCount, result.error || 'Strona zablokowana przez zabezpieczenia antybotowe', selectorCeny);
+          }
+        } catch (sheetErr) {
+          console.error(`  ✗ Błąd zapisu licznika: ${sheetErr.message}`);
+        }
+      } else {
+        console.error(`  ✗ Strona zablokowana (Anti-bot) w trybie szybkim — pomijam (oczekuje na pełny obieg)`);
+      }
       continue;
     }
 
     if (result.error) {
-      console.error(`  ✗ Nie udało się pobrać ceny — pomijam`);
+      console.error(`  ✗ Nie udało się pobrać ceny: ${result.error} — pomijam`);
       stats.otherErrors++;
       try {
         const newCount = await incrementErrorCount(product.row, product.bledyZRzedu);
         if (newCount >= ERROR_ALERT_THRESHOLD && newCount % ERROR_ALERT_THRESHOLD === 0) {
-          await sendErrorAlert(product, newCount, result.error);
+          await sendErrorAlert(product, newCount, result.error, selectorCeny);
         }
       } catch (sheetErr) {
         console.error(`  ✗ Błąd zapisu licznika: ${sheetErr.message}`);

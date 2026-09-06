@@ -76,10 +76,11 @@ export async function sendPriceAlert(product, oldPrice, newPrice, oldDiscounted,
  * @param {number} errorCount - Ile razy z rzędu wystąpił błąd
  * @param {string} errorMessage - Opis ostatniego błędu
  */
-export async function sendErrorAlert(product, errorCount, errorMessage) {
+export async function sendErrorAlert(product, errorCount, errorMessage, selector = '') {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl) return;
 
+  const usedSelector = selector || product.selektor || '(brak)';
   const embed = {
     title: '⚠️ Powtarzający się błąd scrapowania',
     description: `**[${product.nazwa}](${product.url})**`,
@@ -92,12 +93,12 @@ export async function sendErrorAlert(product, errorCount, errorMessage) {
       },
       {
         name: 'Selektor',
-        value: `\`${product.selektor}\``,
+        value: `\`${usedSelector}\``,
         inline: true,
       },
       {
         name: 'Ostatni błąd',
-        value: errorMessage.substring(0, 200), // Ograniczenie do 200 znaków
+        value: (errorMessage || 'Nieznany błąd').substring(0, 200), // Ograniczenie do 200 znaków
       },
     ],
     footer: { text: 'Price Tracker — Sprawdź czy selektor jest nadal aktualny!' },

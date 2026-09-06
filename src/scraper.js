@@ -64,7 +64,14 @@ export async function scrapePrice(url, selector, discountSelector = '', domain =
     console.log(`  ⚠ ScraperAPI nie pomogło (możliwe wyczerpanie limitu)`);
   }
 
-  if (directResult.allBlocked) return { price: null, discount: null, blocked: true, error: null };
+  if (directResult.allBlocked) {
+    return {
+      price: null,
+      discount: null,
+      blocked: true,
+      error: lastError || 'Strona zablokowana przez zabezpieczenia antybotowe (np. Cloudflare/403)',
+    };
+  }
   return { price: null, discount: null, blocked: false, error: lastError };
 }
 

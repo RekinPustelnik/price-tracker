@@ -45,17 +45,36 @@ Do bezpiecznej komunikacji z Google Sheets API bez konieczności interaktywnego 
 
 1. Otwórz [Google Sheets](https://sheets.google.com/) i utwórz **Nowy pusty arkusz**.
 2. Nadaj mu czytelną nazwę (np. `Monitoring Cen`).
-3. W pierwszym wierszu (wiersz nagłówkowy) wprowadź dokładnie poniższy układ kolumn:
+3. Utwórz w arkuszu dwie zakładki o nazwach: **`Produkty`** oraz **`Domeny`**.
+
+### Zakładka 1: `Produkty`
+W pierwszym wierszu (wiersz nagłówkowy) wprowadź poniższe kolumny od **A** do **M**:
 
 | Kolumna | Nazwa nagłówka | Przeznaczenie |
 |:---:|---|---|
-| **A** | `Nazwa` | Dowolna nazwa produktu (np. *Procesor AMD Ryzen 7 7800X3D*) |
-| **B** | `URL` | Bezpośredni link do podstrony produktu w sklepie |
-| **C** | `Selektor` | CSS selektor wskazujący na element z ceną (np. `.product-price`) |
-| **D** | `Cena` | Ostatnio odczytana cena *(wypełnia automat)* |
-| **E** | `Najniższa` | Historycznie najniższa odnotowana cena *(wypełnia automat)* |
-| **F** | `Alert poniżej` | *(Opcjonalnie)* Kwota, poniżej której chcesz otrzymać alert priorytetowy 🚨 |
-| **G** | `Ostatnie sprawdzenie` | Data i godzina ostatniej udanej aktualizacji *(wypełnia automat)* |
+| **A** | `Nazwa` | Dowolna czytelna nazwa produktu *(wymagane)* |
+| **B** | `URL` | Bezpośredni link do podstrony produktu *(wymagane)* |
+| **C** | `Selektor ceny` | *(Opcjonalnie)* Nadpisanie selektora ceny dla tego konkretnego linku |
+| **D** | `Selektor rabatu` | *(Opcjonalnie)* Nadpisanie selektora rabatu dla tego konkretnego linku |
+| **E** | `Cena bez rabatu` | Ostatnio odczytana cena bazowa *(wypełnia automat)* |
+| **F** | `Rabat` | Wykryty rabat kwotowy/procentowy/kod promocyjny *(wypełnia automat)* |
+| **G** | `Cena z rabatem` | Wyliczona finalna cena po uwzględnieniu rabatu *(wypełnia automat)* |
+| **H** | `Najniższa bez rabatu` | Najniższa historyczna cena regularna *(wypełnia automat)* |
+| **I** | `Najniższa z rabatem` | Najniższa historyczna cena po rabacie *(wypełnia automat)* |
+| **J** | `Największy zarejestrowany rabat` | Najlepszy odnotowany rabat *(wypełnia automat)* |
+| **K** | `Alert poniżej` | *(Opcjonalnie)* Kwota, poniżej której otrzymasz alert priorytetowy 🚨 |
+| **L** | `Ostatnie sprawdzenie` | Data i godzina ostatniej weryfikacji *(wypełnia automat)* |
+| **M** | `Licznik błędów` | Liczba kolejnych nieudanych prób pobrania *(wypełnia automat)* |
+
+### Zakładka 2: `Domeny`
+W pierwszym wierszu wprowadź nagłówki:
+
+| Kolumna | Nazwa nagłówka | Przeznaczenie |
+|:---:|---|---|
+| **A** | `Domena` | Nazwa domeny (np. `zalando.pl`, `modivo.pl`, `footshop.pl` lub pełny adres URL) |
+| **B** | `Domyślny Selektor Ceny` | Główny selektor CSS ceny dla tego sklepu |
+| **C** | `Domyślny Selektor Rabatu` | Selektor elementu z kodem lub procentem rabatu (opcjonalny) |
+| **D** | `Uwagi` | Opcjonalne notatki własne |
 
 4. **Udostępnij arkusz dla bota**:
    - Kliknij zielony przycisk **Udostępnij** (Share) w prawym górnym rogu.
