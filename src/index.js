@@ -64,21 +64,8 @@ async function main() {
     const result = await scrapePrice(product.url, selectorCeny, selectorRabatu, hostname);
 
     if (result.blocked) {
-      const isFullMode = Boolean(process.env.SCRAPER_API_KEY);
+      console.error(`  ✗ Strona zablokowana (Anti-bot) — pomijam`);
       stats.blocked++;
-      if (isFullMode) {
-        console.error(`  ✗ Strona zablokowana (Anti-bot) w trybie pełnym — zwiększam licznik błędów`);
-        try {
-          const newCount = await incrementErrorCount(product.row, product.bledyZRzedu);
-          if (newCount >= ERROR_ALERT_THRESHOLD && newCount % ERROR_ALERT_THRESHOLD === 0) {
-            await sendErrorAlert(product, newCount, result.error || 'Strona zablokowana przez zabezpieczenia antybotowe', selectorCeny);
-          }
-        } catch (sheetErr) {
-          console.error(`  ✗ Błąd zapisu licznika: ${sheetErr.message}`);
-        }
-      } else {
-        console.error(`  ✗ Strona zablokowana (Anti-bot) w trybie szybkim — pomijam (oczekuje na pełny obieg)`);
-      }
       continue;
     }
 

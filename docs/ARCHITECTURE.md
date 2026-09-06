@@ -230,7 +230,7 @@ sequenceDiagram
 
 | Scenariusz błędu | Zachowanie systemu | Rezultat w arkuszu / Discordzie |
 |---|---|---|
-| **Kod HTTP 403 (Cloudflare/Bot block)** | Próba przejścia do Fazy 2 (ScraperAPI). Jeśli brak klucza lub brak sukcesu, oznaczany jako `blocked`. | W trybie pełnym (`full`) licznik błędów w kolumnie M wzrasta; po 5 błędach alert Discord. W trybie szybkim (`fast`) pomijany bez nabijania licznika. |
+| **Kod HTTP 403 (Cloudflare/Bot block)** | Próba przejścia do Fazy 2 (ScraperAPI). Jeśli brak klucza lub brak sukcesu, oznaczany jako `blocked`. | Strona jest pomijana bez nabijania licznika błędów w kolumnie M; licznik `blocked` zwiększony w podsumowaniu konsoli. |
 | **Błędny lub nieaktualny selektor CSS** | Cheerio nie odnajduje elementu w HTML. | `incrementErrorCount`: data w kolumnie L, licznik w kolumnie M rośnie o 1; po 5 błędach alert Discord. |
 | **Brak selektora dla produktu i domeny** | Skrypt wykrywa brak reguły dla danej domeny i produktu. | `incrementErrorCount`: data w kolumnie L, licznik w kolumnie M rośnie o 1; po 5 błędach alert Discord. |
 | **Błąd autoryzacji Google Sheets** | Przerwanie skryptu z kodem wyjścia `process.exit(1)`. | Zadanie w GitHub Actions kończy się statusem błędu (czerwony krzyżyk). |
