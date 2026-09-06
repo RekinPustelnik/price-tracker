@@ -46,7 +46,7 @@ async function main() {
     console.log(`  Błędy z rzędu: ${product.bledyZRzedu}`);
 
     // Scrapuj cenę
-    const result = await scrapePrice(product.url, product.selektor);
+    const result = await scrapePrice(product.url, product.selektor, product.selektorRabatu);
 
     // --- Obsługa błędów ---
     if (result.blocked) {
@@ -59,13 +59,10 @@ async function main() {
       console.error(`  ✗ Nie udało się pobrać ceny — pomijam`);
       stats.otherErrors++;
 
-      // Zwiększ licznik błędów w arkuszu
       try {
         const newCount = await incrementErrorCount(product.row, product.bledyZRzedu);
         console.log(`  📊 Błędy z rzędu: ${newCount}`);
 
-        // Wyślij alert na Discord dopiero po osiągnięciu progu
-        // (i potem co kolejne 5, żeby nie spamować)
         if (newCount >= ERROR_ALERT_THRESHOLD && newCount % ERROR_ALERT_THRESHOLD === 0) {
           await sendErrorAlert(product, newCount, result.error);
         }
@@ -77,38 +74,78 @@ async function main() {
     }
 
     // --- Sukces ---
-    const newPrice = result.price;
     stats.checked++;
-    const oldPrice = product.cena;
+    const newPrice = result.price;
+    let newDiscountedPrice = null;
+    let discountStr = null;
 
-    console.log(`  Poprzednia cena: ${oldPrice ?? 'brak (pierwsze sprawdzenie)'}`);
+    if (result.discount) {
+      if (result.discount.isPercent) {
+        newDiscountedPrice = newPrice * (1 - result.discount.value / 100);
+        discountStr = `-${result.discount.value}%`;
+      } else {
+        newDiscountedPrice = newPrice - result.discount.value;
+        discountStr = `-${result.discount.value.toFixed(2)} zł`;
+      }
+      if (newDiscountedPrice < 0) newDiscountedPrice = 0;
+      newDiscountedPrice = Math.round(newDiscountedPrice * 100) / 100;
+    }
+
+    const oldPrice = product.cena;
+    const oldDiscountedPrice = product.cenaZRabatem;
+    
+    // Obliczamy najniższe wartości
+    const lowest = product.najnizsza === null ? newPrice : Math.min(product.najnizsza, newPrice);
+    
+    let lowestDiscounted = product.najnizszaZRabatem;
+    if (newDiscountedPrice !== null) {
+        lowestDiscounted = lowestDiscounted === null ? newDiscountedPrice : Math.min(lowestDiscounted, newDiscountedPrice);
+    }
+
+    // Sprawdzanie największego rabatu
+    let bestDiscountStr = product.najwiekszyRabat;
+    if (newDiscountedPrice !== null && newDiscountedPrice <= lowestDiscounted) {
+        bestDiscountStr = discountStr;
+    }
+
+    console.log(`  Poprzednia cena: ${oldPrice ?? 'brak'} (z rabatem: ${oldDiscountedPrice ?? 'brak'})`);
 
     // 3. Porównaj z poprzednią ceną
-    if (oldPrice !== null && newPrice < oldPrice) {
-      // Cena spadła!
-      const isBelowAlert = product.alertPonizej !== null && newPrice <= product.alertPonizej;
+    let isPriceDrop = false;
+    if (oldPrice !== null && newPrice < oldPrice) isPriceDrop = true;
+    if (oldDiscountedPrice !== null && newDiscountedPrice !== null && newDiscountedPrice < oldDiscountedPrice) isPriceDrop = true;
 
-      console.log(`  📉 Spadek ceny: ${oldPrice} → ${newPrice}`);
+    let isAlertDrop = false;
+    if (product.alertPonizej !== null) {
+       if (newPrice <= product.alertPonizej || (newDiscountedPrice !== null && newDiscountedPrice <= product.alertPonizej)) {
+          isAlertDrop = true;
+       }
+    }
+
+    if (isPriceDrop) {
+      console.log(`  📉 Spadek ceny!`);
       stats.priceDrops++;
-
-      if (isBelowAlert) {
+      if (isAlertDrop) {
         console.log(`  🚨 ALERT: Cena poniżej progu ${product.alertPonizej}!`);
         stats.alerts++;
       }
-
-      // Wyślij alert na Discord
-      await sendPriceAlert(product, oldPrice, newPrice, isBelowAlert);
+      await sendPriceAlert(product, oldPrice, newPrice, oldDiscountedPrice, newDiscountedPrice, isAlertDrop, discountStr);
     } else if (oldPrice === null) {
-      console.log(`  📝 Pierwsze sprawdzenie — zapisuję cenę ${newPrice}`);
-    } else if (newPrice === oldPrice) {
-      console.log(`  — Cena bez zmian: ${newPrice}`);
+      console.log(`  📝 Pierwsze sprawdzenie — zapisuję ceny`);
     } else {
-      console.log(`  📈 Cena wzrosła: ${oldPrice} → ${newPrice}`);
+      console.log(`  — Brak spadków (Baza: ${newPrice}, Rabat: ${newDiscountedPrice ?? 'brak'})`);
     }
 
     // 4. Zapisz cenę do arkusza (zeruje też licznik błędów)
     try {
-      await updatePrice(product.row, newPrice, product.najnizsza);
+      await updatePrice(product.row, {
+        cena: newPrice,
+        rabat: discountStr,
+        cenaZRabatem: newDiscountedPrice,
+        najnizsza: lowest,
+        najnizszaZRabatem: lowestDiscounted,
+        najwiekszyRabat: bestDiscountStr
+      });
       console.log(`  ✓ Arkusz zaktualizowany`);
       if (product.bledyZRzedu > 0) {
         console.log(`  ✓ Licznik błędów zresetowany (było: ${product.bledyZRzedu})`);

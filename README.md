@@ -52,11 +52,11 @@ Szczegółowe poradniki i dokumentacja techniczna znajdują się w katalogu `doc
 ### 1. Przygotuj arkusz Google Sheets
 Utwórz nowy arkusz z nagłówkami w wierszu 1:
 
-| A | B | C | D | E | F | G |
-|---|---|---|---|---|---|---|
-| **Nazwa** | **URL** | **Selektor** | **Cena** | **Najniższa** | **Alert poniżej** | **Ostatnie sprawdzenie** |
+| A | B | C | D | E | F | G | H | I | J | K | L | M |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **Nazwa** | **URL** | **Selektor Ceny** | **Selektor Rabatu** | **Cena bez rabatu** | **Rabat** | **Cena z rabatem** | **Najniższa (bez rabatu)** | **Najniższa (z rabatem)** | **Największy rabat** | **Alert poniżej** | **Ostatnie sprawdzenie** | **Błędy z rzędu** |
 
-Wypełnij kolumny **A**, **B**, **C** (oraz opcjonalnie **F** z kwotą alertu). Kolumny **D**, **E**, **G** wypełnia automat.
+Wypełnij kolumny **A**, **B**, **C**, opcjonalnie **D** (jeśli na stronie są rabaty) oraz **K** (próg powiadomienia priorytetowego). Kolumny od **E do J** oraz **L i M** wypełnia automat w trakcie działania.
 
 ### 2. Utwórz Google Cloud Service Account
 1. Wejdź na [Google Cloud Console](https://console.cloud.google.com/), stwórz projekt i włącz **Google Sheets API**.

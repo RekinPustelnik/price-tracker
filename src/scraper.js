@@ -46,20 +46,13 @@ function buildHeaders(url) {
   };
 }
 
-/**
- * Pobiera stronę i wyciąga cenę za pomocą CSS selektora.
- *
- * @returns {{ price: number, blocked: false, error: null }
- *         | { price: null, blocked: true, error: null }
- *         | { price: null, blocked: false, error: string }}
- */
-export async function scrapePrice(url, selector) {
+export async function scrapePrice(url, selector, discountSelector = '') {
   let lastError = '';
 
   // FAZA 1: Spróbuj bezpośrednio (bez ScraperAPI)
   console.log(`  → Próba bezpośrednia...`);
-  const directResult = await fetchAndParse(url, selector, buildHeaders(url), 2);
-  if (directResult.price !== null) return { price: directResult.price, blocked: false, error: null };
+  const directResult = await fetchAndParse(url, selector, discountSelector, buildHeaders(url), 2);
+  if (directResult.price !== null) return { price: directResult.price, discount: directResult.discount, blocked: false, error: null };
   lastError = directResult.lastError;
 
   // FAZA 2: Jeśli bezpośrednio nie wyszło — spróbuj przez ScraperAPI (jeśli mamy klucz)
@@ -67,8 +60,8 @@ export async function scrapePrice(url, selector) {
   if (scraperApiKey) {
     console.log(`  → Próba przez ScraperAPI...`);
     const proxyUrl = `https://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}`;
-    const proxyResult = await fetchAndParse(proxyUrl, selector, {}, 1);
-    if (proxyResult.price !== null) return { price: proxyResult.price, blocked: false, error: null };
+    const proxyResult = await fetchAndParse(proxyUrl, selector, discountSelector, {}, 1);
+    if (proxyResult.price !== null) return { price: proxyResult.price, discount: proxyResult.discount, blocked: false, error: null };
     // Użyj błędu z proxy tylko jeśli nie jest to problem z samym proxy
     if (!proxyResult.allBlocked) lastError = proxyResult.lastError;
 
@@ -76,18 +69,18 @@ export async function scrapePrice(url, selector) {
   }
 
   // Jeśli wszystkie błędy to anti-bot → zablokowany
-  if (directResult.allBlocked) return { price: null, blocked: true, error: null };
+  if (directResult.allBlocked) return { price: null, discount: null, blocked: true, error: null };
 
   // Inny błąd → zwróć opis
-  return { price: null, blocked: false, error: lastError };
+  return { price: null, discount: null, blocked: false, error: lastError };
 }
 
 /**
- * Pomocnicza funkcja: pobiera HTML i parsuje cenę.
+ * Pomocnicza funkcja: pobiera HTML i parsuje cenę oraz ew. rabat.
  *
- * @returns {Promise<{price: number|null, allBlocked: boolean, lastError: string}>}
+ * @returns {Promise<{price: number|null, discount: object|null, allBlocked: boolean, lastError: string}>}
  */
-async function fetchAndParse(targetUrl, selector, headers, maxRetries) {
+async function fetchAndParse(targetUrl, selector, discountSelector, headers, maxRetries) {
   let allBlocked = true;
   let lastError = '';
 
@@ -122,9 +115,20 @@ async function fetchAndParse(targetUrl, selector, headers, maxRetries) {
       if (price === null) {
         throw new Error(`Nie udało się sparsować ceny z tekstu: "${rawText}"`);
       }
+      
+      let discount = null;
+      if (discountSelector) {
+        const rawDiscount = $(discountSelector).first().text().trim();
+        if (rawDiscount) {
+          discount = parseDiscount(rawDiscount);
+        }
+      }
 
       console.log(`  ✓ Cena: ${price} (tekst: "${rawText}")`);
-      return { price, allBlocked: false, lastError: '' };
+      if (discount) {
+        console.log(`  ✓ Rabat: ${discount.value}${discount.isPercent ? '%' : ''} (tekst: "${discount.raw}")`);
+      }
+      return { price, discount, allBlocked: false, lastError: '' };
     } catch (err) {
       lastError = err.message;
       console.error(`  ✗ [Próba ${attempt}/${maxRetries}] ${err.message}`);
@@ -136,23 +140,15 @@ async function fetchAndParse(targetUrl, selector, headers, maxRetries) {
     }
   }
 
-  return { price: null, allBlocked, lastError };
+  return { price: null, discount: null, allBlocked, lastError };
 }
 
 /**
  * Parsuje tekst ceny do liczby.
- * Obsługuje polskie i angielskie formaty:
- *   "1 234,56 zł"  →  1234.56
- *   "1,234.56"     →  1234.56
- *   "1234.56"      →  1234.56
- *   "1234,56"      →  1234.56
  */
 export function parsePrice(text) {
   let cleaned = text.replace(/[^\d.,]/g, '');
-
-  // Usuń kropki i przecinki z początku i końca (np. "239,99 zł." → "239,99")
   cleaned = cleaned.replace(/^[.,]+|[.,]+$/g, '');
-
   if (!cleaned) return null;
 
   const lastComma = cleaned.lastIndexOf(',');
@@ -173,4 +169,23 @@ export function parsePrice(text) {
 
   const price = parseFloat(cleaned);
   return isNaN(price) || price <= 0 ? null : price;
+}
+
+/**
+ * Parsuje tekst rabatu wyciągając informację czy to procent czy kwota.
+ * Wyszukuje pierwszą napotkaną liczbę w tekście (np. wyciągnie 30 z "EXTRA30").
+ */
+export function parseDiscount(text) {
+  if (!text) return null;
+  
+  const isPercent = text.includes('%');
+  
+  // Szukamy po prostu pierwszej napotkanej liczby w całym tekście 
+  const match = text.match(/\d+(?:[.,\s]\d+)*/);
+  if (!match) return null;
+
+  const value = parsePrice(match[0]);
+  if (value === null) return null;
+
+  return { value, isPercent, raw: text.trim() };
 }

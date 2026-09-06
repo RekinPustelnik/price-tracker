@@ -4,22 +4,13 @@
 
 /**
  * Wysyła alert o zmianie ceny na Discord.
- *
- * @param {object} product - Dane produktu z arkusza
- * @param {number} oldPrice - Poprzednia cena
- * @param {number} newPrice - Nowa cena
- * @param {boolean} isBelowAlert - Czy cena spadła poniżej progu alertu
  */
-export async function sendPriceAlert(product, oldPrice, newPrice, isBelowAlert) {
+export async function sendPriceAlert(product, oldPrice, newPrice, oldDiscounted, newDiscounted, isBelowAlert, discountStr) {
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
   if (!webhookUrl) {
     console.warn('  ⚠ Brak DISCORD_WEBHOOK_URL — pomijam powiadomienie');
     return;
   }
-
-  const diff = newPrice - oldPrice;
-  const diffText = diff > 0 ? `+${diff.toFixed(2)}` : diff.toFixed(2);
-  const percentChange = (((newPrice - oldPrice) / oldPrice) * 100).toFixed(1);
 
   const embed = {
     title: isBelowAlert
@@ -29,26 +20,29 @@ export async function sendPriceAlert(product, oldPrice, newPrice, isBelowAlert) 
     color: isBelowAlert ? 0xff0000 : 0x00c853,
     fields: [
       {
-        name: 'Poprzednia cena',
-        value: `~~${oldPrice.toFixed(2)}~~`,
-        inline: true,
-      },
-      {
-        name: 'Nowa cena',
-        value: `**${newPrice.toFixed(2)}**`,
-        inline: true,
-      },
-      {
-        name: 'Zmiana',
-        value: `${diffText} (${percentChange}%)`,
-        inline: true,
-      },
+        name: 'Cena bazowa',
+        value: oldPrice ? `~~${oldPrice.toFixed(2)}~~  →  **${newPrice.toFixed(2)}**` : `**${newPrice.toFixed(2)}**`,
+        inline: false,
+      }
     ],
     footer: {
       text: 'Price Tracker',
     },
     timestamp: new Date().toISOString(),
   };
+
+  if (newDiscounted !== null) {
+    embed.fields.push({
+      name: 'Cena z rabatem',
+      value: oldDiscounted ? `~~${oldDiscounted.toFixed(2)}~~  →  **${newDiscounted.toFixed(2)}**` : `**${newDiscounted.toFixed(2)}**`,
+      inline: true,
+    });
+    embed.fields.push({
+      name: 'Złapany rabat',
+      value: discountStr,
+      inline: true,
+    });
+  }
 
   if (isBelowAlert) {
     embed.fields.push({
