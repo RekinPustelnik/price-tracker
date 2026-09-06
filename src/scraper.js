@@ -46,41 +46,29 @@ function buildHeaders(url) {
   };
 }
 
-export async function scrapePrice(url, selector, discountSelector = '') {
+export async function scrapePrice(url, selector, discountSelector = '', domain = '') {
   let lastError = '';
 
-  // FAZA 1: Spróbuj bezpośrednio (bez ScraperAPI)
   console.log(`  → Próba bezpośrednia...`);
-  const directResult = await fetchAndParse(url, selector, discountSelector, buildHeaders(url), 2);
+  const directResult = await fetchAndParse(url, selector, discountSelector, buildHeaders(url), 2, domain);
   if (directResult.price !== null) return { price: directResult.price, discount: directResult.discount, blocked: false, error: null };
   lastError = directResult.lastError;
 
-  // FAZA 2: Jeśli bezpośrednio nie wyszło — spróbuj przez ScraperAPI (jeśli mamy klucz)
   const scraperApiKey = process.env.SCRAPER_API_KEY;
   if (scraperApiKey) {
     console.log(`  → Próba przez ScraperAPI...`);
     const proxyUrl = `https://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}`;
-    const proxyResult = await fetchAndParse(proxyUrl, selector, discountSelector, {}, 1);
+    const proxyResult = await fetchAndParse(proxyUrl, selector, discountSelector, {}, 1, domain);
     if (proxyResult.price !== null) return { price: proxyResult.price, discount: proxyResult.discount, blocked: false, error: null };
-    // Użyj błędu z proxy tylko jeśli nie jest to problem z samym proxy
     if (!proxyResult.allBlocked) lastError = proxyResult.lastError;
-
     console.log(`  ⚠ ScraperAPI nie pomogło (możliwe wyczerpanie limitu)`);
   }
 
-  // Jeśli wszystkie błędy to anti-bot → zablokowany
   if (directResult.allBlocked) return { price: null, discount: null, blocked: true, error: null };
-
-  // Inny błąd → zwróć opis
   return { price: null, discount: null, blocked: false, error: lastError };
 }
 
-/**
- * Pomocnicza funkcja: pobiera HTML i parsuje cenę oraz ew. rabat.
- *
- * @returns {Promise<{price: number|null, discount: object|null, allBlocked: boolean, lastError: string}>}
- */
-async function fetchAndParse(targetUrl, selector, discountSelector, headers, maxRetries) {
+async function fetchAndParse(targetUrl, selector, discountSelector, headers, maxRetries, domain) {
   let allBlocked = true;
   let lastError = '';
 
@@ -120,13 +108,13 @@ async function fetchAndParse(targetUrl, selector, discountSelector, headers, max
       if (discountSelector) {
         const rawDiscount = $(discountSelector).first().text().trim();
         if (rawDiscount) {
-          discount = parseDiscount(rawDiscount);
+          discount = parseDiscountDomain(rawDiscount, domain);
         }
       }
 
       console.log(`  ✓ Cena: ${price} (tekst: "${rawText}")`);
       if (discount) {
-        console.log(`  ✓ Rabat: ${discount.value}${discount.isPercent ? '%' : ''} (tekst: "${discount.raw}")`);
+        console.log(`  ✓ Rabat: ${discount.value} (tekst raw: zdekodowano pomyślnie)`);
       }
       return { price, discount, allBlocked: false, lastError: '' };
     } catch (err) {
@@ -143,9 +131,6 @@ async function fetchAndParse(targetUrl, selector, discountSelector, headers, max
   return { price: null, discount: null, allBlocked, lastError };
 }
 
-/**
- * Parsuje tekst ceny do liczby.
- */
 export function parsePrice(text) {
   let cleaned = text.replace(/[^\d.,]/g, '');
   cleaned = cleaned.replace(/^[.,]+|[.,]+$/g, '');
@@ -172,20 +157,42 @@ export function parsePrice(text) {
 }
 
 /**
- * Parsuje tekst rabatu wyciągając informację czy to procent czy kwota.
- * Wyszukuje pierwszą napotkaną liczbę w tekście (np. wyciągnie 30 z "EXTRA30").
+ * Parsuje tekst rabatu w zależności od domeny.
  */
-export function parseDiscount(text) {
+export function parseDiscountDomain(text, domain) {
   if (!text) return null;
   
-  const isPercent = text.includes('%');
+  if (domain === 'wojas.pl' || domain === 'wojas.com') {
+      let finalPrice = null;
+      let code = null;
+      const priceMatch = text.match(/za\s*([\d\s.,]+)\s*zł/i);
+      if (priceMatch) finalPrice = parsePrice(priceMatch[1]);
+      const codeMatch = text.match(/kodem\s*(\w+)/i);
+      if (codeMatch) code = `Kod: ${codeMatch[1]}`;
+      if (finalPrice !== null) {
+          return { isFinalPrice: true, value: finalPrice, rawCode: code };
+      }
+  }
   
-  // Szukamy po prostu pierwszej napotkanej liczby w całym tekście 
+  if (domain === 'modivo.pl') {
+      let discountVal = null;
+      let code = null;
+      const pctMatch = text.match(/([\d\s.,]+)\s*%/);
+      if (pctMatch) discountVal = parsePrice(pctMatch[1]);
+      const codeMatch = text.match(/kod:\s*(\w+)/i);
+      if (codeMatch) code = `Kod: ${codeMatch[1]}`;
+      if (discountVal !== null) {
+          return { isPercent: true, value: discountVal, rawCode: code };
+      }
+  }
+  
+  // DEFAULT 
+  const isPercent = text.includes('%');
   const match = text.match(/\d+(?:[.,\s]\d+)*/);
   if (!match) return null;
 
   const value = parsePrice(match[0]);
   if (value === null) return null;
 
-  return { value, isPercent, raw: text.trim() };
+  return { value, isPercent, rawCode: null };
 }

@@ -1,28 +1,21 @@
-// =============================================================================
-// sheets.js — Odczyt i zapis danych w Google Sheets
-// =============================================================================
-
 import { google } from 'googleapis';
 
 const COLUMNS = {
-  NAZWA: 0,              // A
-  URL: 1,                // B
-  SELEKTOR: 2,           // C
-  SELEKTOR_RABATU: 3,    // D
-  CENA: 4,               // E
-  RABAT: 5,              // F
-  CENA_Z_RABATEM: 6,     // G
-  NAJNIZSZA: 7,          // H
-  NAJNIZSZA_Z_RABATEM: 8,// I
-  NAJWIEKSZY_RABAT: 9,   // J
-  ALERT_PONIZEJ: 10,     // K
-  OSTATNIE_SPRAWDZENIE: 11, // L
-  BLEDY_Z_RZEDU: 12,     // M
+  NAZWA: 0,
+  URL: 1,
+  SELEKTOR: 2,
+  SELEKTOR_RABATU: 3,
+  CENA: 4,
+  RABAT: 5,
+  CENA_Z_RABATEM: 6,
+  NAJNIZSZA: 7,
+  NAJNIZSZA_Z_RABATEM: 8,
+  NAJWIEKSZY_RABAT: 9,
+  ALERT_PONIZEJ: 10,
+  OSTATNIE_SPRAWDZENIE: 11,
+  BLEDY_Z_RZEDU: 12,
 };
 
-/**
- * Tworzy klienta autoryzacji Google Sheets API.
- */
 function getAuth() {
   return new google.auth.GoogleAuth({
     credentials: {
@@ -33,34 +26,67 @@ function getAuth() {
   });
 }
 
-/**
- * Tworzy instancję Google Sheets API.
- */
 async function getSheetsClient() {
   const auth = getAuth();
   return google.sheets({ version: 'v4', auth });
 }
 
-/**
- * Parsuje liczbę z arkusza (odporność na polski format z przecinkiem i spacjami).
- */
 function parseSheetNumber(val) {
   if (!val) return null;
   const num = parseFloat(val.toString().replace(/\s/g, '').replace(',', '.'));
   return isNaN(num) ? null : num;
 }
 
-/**
- * Pobiera listę produktów z arkusza (pomija wiersz nagłówkowy).
- */
+export async function getDomainConfig() {
+  const sheets = await getSheetsClient();
+  const spreadsheetId = process.env.SPREADSHEET_ID;
+  
+  let response;
+  try {
+    response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'Domeny!A2:C100',
+    });
+  } catch (err) {
+    console.warn(`  ⚠ Nie udało się pobrać zakładki 'Domeny'. Czy na pewno istnieje? Error: ${err.message}`);
+    return {};
+  }
+
+  const rows = response.data.values || [];
+  const config = {};
+  
+  for (const row of rows) {
+     const domainStr = (row[0] || '').trim().toLowerCase();
+     if (!domainStr) continue;
+     
+     // czyszczenie z https://, http://, www. i ścieżek
+     let domain = domainStr.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+     
+     config[domain] = {
+        priceSelector: (row[1] || '').trim(),
+        discountSelector: (row[2] || '').trim(),
+     };
+  }
+  return config;
+}
+
 export async function getProducts() {
   const sheets = await getSheetsClient();
   const spreadsheetId = process.env.SPREADSHEET_ID;
 
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: 'A2:M1000', // Pomijamy wiersz 1, od A do M
-  });
+  let response;
+  try {
+    response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'Produkty!A2:M1000', 
+    });
+  } catch(err) {
+    console.warn(`  ⚠ Próba pobrania z 'Produkty!' nieudana (zakładka może nazywać się inaczej), spadek do starej metody (Arkusz1).`);
+    response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'A2:M1000', 
+    });
+  }
 
   const rows = response.data.values || [];
 
@@ -80,45 +106,41 @@ export async function getProducts() {
       alertPonizej: parseSheetNumber(row[COLUMNS.ALERT_PONIZEJ]),
       bledyZRzedu: parseInt(row[COLUMNS.BLEDY_Z_RZEDU], 10) || 0,
     }))
-    .filter((p) => p.nazwa && p.url && p.selektor);
+    .filter((p) => p.nazwa && p.url); // Wymagamy tylko nazwy i urla, selektor może być domyślny z Domen
 }
 
-/**
- * Aktualizuje cenę, rabaty i datę sprawdzenia, zerując licznik błędów.
- */
 export async function updatePrice(row, updates) {
   const sheets = await getSheetsClient();
   const spreadsheetId = process.env.SPREADSHEET_ID;
 
   const now = new Date().toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw' });
+  const prefix = 'Produkty!'; // Zakładamy, że user utworzył zakładkę Produkty
 
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId,
     requestBody: {
       valueInputOption: 'USER_ENTERED',
       data: [
-        { range: `E${row}`, values: [[updates.cena ?? '']] },
-        { range: `F${row}`, values: [[updates.rabat ?? '']] },
-        { range: `G${row}`, values: [[updates.cenaZRabatem ?? '']] },
-        { range: `H${row}`, values: [[updates.najnizsza ?? '']] },
-        { range: `I${row}`, values: [[updates.najnizszaZRabatem ?? '']] },
-        { range: `J${row}`, values: [[updates.najwiekszyRabat ?? '']] },
-        { range: `L${row}`, values: [[now]] },
-        { range: `M${row}`, values: [[0]] },
+        { range: `${prefix}E${row}`, values: [[updates.cena ?? '']] },
+        { range: `${prefix}F${row}`, values: [[updates.rabat ?? '']] },
+        { range: `${prefix}G${row}`, values: [[updates.cenaZRabatem ?? '']] },
+        { range: `${prefix}H${row}`, values: [[updates.najnizsza ?? '']] },
+        { range: `${prefix}I${row}`, values: [[updates.najnizszaZRabatem ?? '']] },
+        { range: `${prefix}J${row}`, values: [[updates.najwiekszyRabat ?? '']] },
+        { range: `${prefix}L${row}`, values: [[now]] },
+        { range: `${prefix}M${row}`, values: [[0]] },
       ],
     },
   });
 }
 
-/**
- * Zwiększa licznik błędów z rzędu dla danego produktu.
- */
 export async function incrementErrorCount(row, currentCount) {
   const sheets = await getSheetsClient();
   const spreadsheetId = process.env.SPREADSHEET_ID;
 
   const newCount = currentCount + 1;
   const now = new Date().toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw' });
+  const prefix = 'Produkty!';
 
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId,
@@ -126,11 +148,11 @@ export async function incrementErrorCount(row, currentCount) {
       valueInputOption: 'USER_ENTERED',
       data: [
         {
-          range: `L${row}`, // Ostatnie sprawdzenie
+          range: `${prefix}L${row}`, 
           values: [[now]],
         },
         {
-          range: `M${row}`, // Błędy z rzędu
+          range: `${prefix}M${row}`, 
           values: [[newCount]],
         },
       ],
