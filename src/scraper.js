@@ -32,6 +32,7 @@ function buildHeaders(url) {
     'Accept-Language': 'pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7',
     'Accept-Encoding': 'gzip, deflate, br',
     'Referer': origin + '/',
+    'Cookie': 'localization=PL; cart_currency=PLN;',
     'DNT': '1',
     'Connection': 'keep-alive',
     'Upgrade-Insecure-Requests': '1',
