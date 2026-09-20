@@ -5,8 +5,13 @@ import { sendPriceAlert, sendErrorAlert, sendSummary } from './discord.js';
 const ERROR_ALERT_THRESHOLD = 5;
 
 async function main() {
+  const isDryRun = process.argv.includes('--dry-run');
+
   console.log('=== Price Tracker — Start ===');
   console.log(`Data: ${new Date().toLocaleString('pl-PL', { timeZone: 'Europe/Warsaw' })}`);
+  if (isDryRun) {
+    console.log('🔍 [TRYB DRY-RUN — symulacja bez zapisu do Google Sheets i bez wysyłki powiadomień Discord]');
+  }
   console.log('');
 
   const domainConfig = await getDomainConfig();
@@ -50,13 +55,17 @@ async function main() {
     if (!selectorCeny) {
         console.error(`  ✗ Brak selektora ceny (ani nadpisanego, ani domyślnego dla domeny) — pomijam`);
         stats.otherErrors++;
-        try {
-          const newCount = await incrementErrorCount(product.row, product.bledyZRzedu);
-          if (newCount >= ERROR_ALERT_THRESHOLD && newCount % ERROR_ALERT_THRESHOLD === 0) {
-            await sendErrorAlert(product, newCount, 'Brak selektora ceny (brak w arkuszu Produkty i Domeny)', '(brak)');
+        if (!isDryRun) {
+          try {
+            const newCount = await incrementErrorCount(product.row, product.bledyZRzedu);
+            if (newCount >= ERROR_ALERT_THRESHOLD && newCount % ERROR_ALERT_THRESHOLD === 0) {
+              await sendErrorAlert(product, newCount, 'Brak selektora ceny (brak w arkuszu Produkty i Domeny)', '(brak)');
+            }
+          } catch (sheetErr) {
+            console.error(`  ✗ Błąd zapisu licznika: ${sheetErr.message}`);
           }
-        } catch (sheetErr) {
-          console.error(`  ✗ Błąd zapisu licznika: ${sheetErr.message}`);
+        } else {
+          console.log(`  [DRY-RUN] Pomijam incrementErrorCount i sendErrorAlert`);
         }
         continue;
     }
@@ -72,13 +81,17 @@ async function main() {
     if (result.error) {
       console.error(`  ✗ Nie udało się pobrać ceny: ${result.error} — pomijam`);
       stats.otherErrors++;
-      try {
-        const newCount = await incrementErrorCount(product.row, product.bledyZRzedu);
-        if (newCount >= ERROR_ALERT_THRESHOLD && newCount % ERROR_ALERT_THRESHOLD === 0) {
-          await sendErrorAlert(product, newCount, result.error, selectorCeny);
+      if (!isDryRun) {
+        try {
+          const newCount = await incrementErrorCount(product.row, product.bledyZRzedu);
+          if (newCount >= ERROR_ALERT_THRESHOLD && newCount % ERROR_ALERT_THRESHOLD === 0) {
+            await sendErrorAlert(product, newCount, result.error, selectorCeny);
+          }
+        } catch (sheetErr) {
+          console.error(`  ✗ Błąd zapisu licznika: ${sheetErr.message}`);
         }
-      } catch (sheetErr) {
-        console.error(`  ✗ Błąd zapisu licznika: ${sheetErr.message}`);
+      } else {
+        console.log(`  [DRY-RUN] Pomijam incrementErrorCount i sendErrorAlert`);
       }
       continue;
     }
@@ -87,18 +100,23 @@ async function main() {
     const newPrice = result.price;
     let newDiscountedPrice = null;
     let discountStr = null;
+    let couponCode = null;
+    let promoExpiresAt = null;
 
     if (result.discount) {
+      couponCode = result.discount.couponCode || null;
+      promoExpiresAt = result.discount.expiresAt || null;
+
       if (result.discount.isFinalPrice) {
          newDiscountedPrice = result.discount.value;
          const saved = newPrice - newDiscountedPrice;
-         discountStr = result.discount.rawCode ? result.discount.rawCode : `-${saved.toFixed(2)} zł`;
+         discountStr = couponCode ? `Kod: ${couponCode} (-${saved.toFixed(2)} zł)` : `-${saved.toFixed(2)} zł`;
       } else if (result.discount.isPercent) {
         newDiscountedPrice = newPrice * (1 - result.discount.value / 100);
-        discountStr = result.discount.rawCode ? `${result.discount.rawCode} (-${result.discount.value}%)` : `-${result.discount.value}%`;
+        discountStr = couponCode ? `Kod: ${couponCode} (-${result.discount.value}%)` : `-${result.discount.value}%`;
       } else {
         newDiscountedPrice = newPrice - result.discount.value;
-        discountStr = result.discount.rawCode ? `${result.discount.rawCode} (-${result.discount.value.toFixed(2)} zł)` : `-${result.discount.value.toFixed(2)} zł`;
+        discountStr = couponCode ? `Kod: ${couponCode} (-${result.discount.value.toFixed(2)} zł)` : `-${result.discount.value.toFixed(2)} zł`;
       }
       if (newDiscountedPrice < 0) newDiscountedPrice = 0;
       newDiscountedPrice = Math.round(newDiscountedPrice * 100) / 100;
@@ -106,6 +124,10 @@ async function main() {
 
     const oldPrice = product.cena;
     const oldDiscountedPrice = product.cenaZRabatem;
+
+    // Obliczamy efektywne ceny (uwzględniając rabat jeśli istnieje)
+    const effectiveOld = oldDiscountedPrice !== null ? oldDiscountedPrice : oldPrice;
+    const effectiveNew = newDiscountedPrice !== null ? newDiscountedPrice : newPrice;
     
     const lowest = product.najnizsza === null ? newPrice : Math.min(product.najnizsza, newPrice);
     let lowestDiscounted = product.najnizszaZRabatem;
@@ -120,47 +142,72 @@ async function main() {
 
     console.log(`  Poprzednia cena: ${oldPrice ?? 'brak'} (z rabatem: ${oldDiscountedPrice ?? 'brak'})`);
 
+    // Spadek ceny jeśli efektywna cena spadła (np. pojawił się nowy rabat lub obniżono cenę)
     let isPriceDrop = false;
-    if (oldPrice !== null && newPrice < oldPrice) isPriceDrop = true;
-    if (oldDiscountedPrice !== null && newDiscountedPrice !== null && newDiscountedPrice < oldDiscountedPrice) isPriceDrop = true;
+    if (effectiveOld !== null && effectiveNew < effectiveOld) {
+      isPriceDrop = true;
+    } else if (oldPrice !== null && newPrice < oldPrice) {
+      isPriceDrop = true;
+    }
 
     let isAlertDrop = false;
     if (product.alertPonizej !== null) {
-       if (newPrice <= product.alertPonizej || (newDiscountedPrice !== null && newDiscountedPrice <= product.alertPonizej)) {
+       if (effectiveNew !== null && effectiveNew <= product.alertPonizej) {
           isAlertDrop = true;
        }
     }
 
     if (isPriceDrop) {
-      console.log(`  📉 Spadek ceny!`);
+      console.log(`  📉 Spadek ceny! (Efektywna: ${effectiveOld} zł → ${effectiveNew} zł)`);
       stats.priceDrops++;
       if (isAlertDrop) {
-        console.log(`  🚨 ALERT: Cena poniżej progu ${product.alertPonizej}!`);
+        console.log(`  🚨 ALERT: Cena poniżej progu ${product.alertPonizej} zł!`);
         stats.alerts++;
       }
-      await sendPriceAlert(product, oldPrice, newPrice, oldDiscountedPrice, newDiscountedPrice, isAlertDrop, discountStr);
+      if (!isDryRun) {
+        await sendPriceAlert(
+          product,
+          oldPrice,
+          newPrice,
+          oldDiscountedPrice,
+          newDiscountedPrice,
+          isAlertDrop,
+          discountStr,
+          {
+            couponCode,
+            expiresAt: promoExpiresAt,
+            ogImage: result.ogImage,
+          }
+        );
+      } else {
+        console.log(`  [DRY-RUN] Wysłano by alert cenowy Discord (ogImage: ${result.ogImage || 'brak'}, kod: ${couponCode || 'brak'})`);
+      }
     } else if (oldPrice === null) {
       console.log(`  📝 Pierwsze sprawdzenie — zapisuję ceny`);
     } else {
       console.log(`  — Brak spadków (Baza: ${newPrice}, Rabat: ${newDiscountedPrice ?? 'brak'})`);
     }
 
-    try {
-      await updatePrice(product.row, {
-        cena: newPrice,
-        rabat: discountStr,
-        cenaZRabatem: newDiscountedPrice,
-        najnizsza: lowest,
-        najnizszaZRabatem: lowestDiscounted,
-        najwiekszyRabat: bestDiscountStr
-      });
-      console.log(`  ✓ Arkusz zaktualizowany`);
-      if (product.bledyZRzedu > 0) {
-        console.log(`  ✓ Licznik błędów zresetowany`);
+    if (!isDryRun) {
+      try {
+        await updatePrice(product.row, {
+          cena: newPrice,
+          rabat: discountStr,
+          cenaZRabatem: newDiscountedPrice,
+          najnizsza: lowest,
+          najnizszaZRabatem: lowestDiscounted,
+          najwiekszyRabat: bestDiscountStr
+        });
+        console.log(`  ✓ Arkusz zaktualizowany`);
+        if (product.bledyZRzedu > 0) {
+          console.log(`  ✓ Licznik błędów zresetowany`);
+        }
+      } catch (err) {
+        console.error(`  ✗ Błąd zapisu do Sheets: ${err.message}`);
+        stats.otherErrors++;
       }
-    } catch (err) {
-      console.error(`  ✗ Błąd zapisu do Sheets: ${err.message}`);
-      stats.otherErrors++;
+    } else {
+      console.log(`  [DRY-RUN] Symulacja zapisu do Sheets: cena=${newPrice}, rabat=${discountStr ?? 'brak'}, zRabatem=${newDiscountedPrice ?? 'brak'}`);
     }
 
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -173,7 +220,11 @@ async function main() {
   console.log(`Zablokowane (Anti-bot): ${stats.blocked}`);
   console.log(`Inne błędy: ${stats.otherErrors}`);
 
-  await sendSummary(stats);
+  if (!isDryRun) {
+    await sendSummary(stats);
+  } else {
+    console.log('[DRY-RUN] Pomijam wysyłkę podsumowania na Discord');
+  }
   console.log('\n=== Price Tracker — Koniec ===');
 }
 

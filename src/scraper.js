@@ -51,16 +51,32 @@ export async function scrapePrice(url, selector, discountSelector = '', domain =
   let lastError = '';
 
   console.log(`  → Próba bezpośrednia...`);
-  const directResult = await fetchAndParse(url, selector, discountSelector, buildHeaders(url), 2, domain);
-  if (directResult.price !== null) return { price: directResult.price, discount: directResult.discount, blocked: false, error: null };
+  const directResult = await fetchAndParse(url, selector, discountSelector, buildHeaders(url), 2, domain, url);
+  if (directResult.price !== null) {
+    return {
+      price: directResult.price,
+      discount: directResult.discount,
+      ogImage: directResult.ogImage,
+      blocked: false,
+      error: null,
+    };
+  }
   lastError = directResult.lastError;
 
   const scraperApiKey = process.env.SCRAPER_API_KEY;
   if (scraperApiKey) {
     console.log(`  → Próba przez ScraperAPI...`);
     const proxyUrl = `https://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}`;
-    const proxyResult = await fetchAndParse(proxyUrl, selector, discountSelector, {}, 1, domain);
-    if (proxyResult.price !== null) return { price: proxyResult.price, discount: proxyResult.discount, blocked: false, error: null };
+    const proxyResult = await fetchAndParse(proxyUrl, selector, discountSelector, {}, 1, domain, url);
+    if (proxyResult.price !== null) {
+      return {
+        price: proxyResult.price,
+        discount: proxyResult.discount,
+        ogImage: proxyResult.ogImage || directResult.ogImage,
+        blocked: false,
+        error: null,
+      };
+    }
     if (!proxyResult.allBlocked) lastError = proxyResult.lastError;
     console.log(`  ⚠ ScraperAPI nie pomogło (możliwe wyczerpanie limitu)`);
   }
@@ -69,14 +85,15 @@ export async function scrapePrice(url, selector, discountSelector = '', domain =
     return {
       price: null,
       discount: null,
+      ogImage: null,
       blocked: true,
       error: lastError || 'Strona zablokowana przez zabezpieczenia antybotowe (np. Cloudflare/403)',
     };
   }
-  return { price: null, discount: null, blocked: false, error: lastError };
+  return { price: null, discount: null, ogImage: null, blocked: false, error: lastError };
 }
 
-async function fetchAndParse(targetUrl, selector, discountSelector, headers, maxRetries, domain) {
+async function fetchAndParse(targetUrl, selector, discountSelector, headers, maxRetries, domain, originalUrl = targetUrl) {
   let allBlocked = true;
   let lastError = '';
 
@@ -100,10 +117,43 @@ async function fetchAndParse(targetUrl, selector, discountSelector, headers, max
 
       const html = await response.text();
       const $ = cheerio.load(html);
-      const rawText = $(selector).first().text().trim();
+
+      // Ekstrakcja og:image / twitter:image (Feature 1)
+      let ogImage = $('meta[property="og:image"]').attr('content') ||
+                    $('meta[property="og:image:url"]').attr('content') ||
+                    $('meta[name="twitter:image"]').attr('content') ||
+                    $('meta[name="twitter:image:src"]').attr('content') ||
+                    null;
+
+      if (ogImage) {
+        ogImage = ogImage.trim();
+        try {
+          ogImage = new URL(ogImage, originalUrl).href;
+        } catch {
+          ogImage = null;
+        }
+      }
+
+      let effectiveSelector = selector;
+      if (domain === 'perfectblue.pl' || domain === 'perfectblue.com') {
+        if ($('meta[property="product:price:amount"]').length > 0) {
+          effectiveSelector = 'meta[property="product:price:amount"]';
+        }
+      }
+
+      const $el = $(effectiveSelector).first();
+      let rawText = '';
+      
+      if ($el.is('meta')) {
+        rawText = $el.attr('content') || '';
+      } else if ($el.is('input')) {
+        rawText = $el.val() || '';
+      } else {
+        rawText = $el.text().trim();
+      }
 
       if (!rawText) {
-        throw new Error(`Selektor "${selector}" nie znalazł elementu lub element jest pusty`);
+        throw new Error(`Selektor "${effectiveSelector}" nie znalazł elementu lub element jest pusty`);
       }
 
       const price = parsePrice(rawText);
@@ -122,9 +172,10 @@ async function fetchAndParse(targetUrl, selector, discountSelector, headers, max
 
       console.log(`  ✓ Cena: ${price} (tekst: "${rawText}")`);
       if (discount) {
-        console.log(`  ✓ Rabat: ${discount.value} (tekst raw: zdekodowano pomyślnie)`);
+        const info = discount.couponCode ? `kod: ${discount.couponCode}, wartość: ${discount.value}` : discount.value;
+        console.log(`  ✓ Rabat: ${info}`);
       }
-      return { price, discount, allBlocked: false, lastError: '' };
+      return { price, discount, ogImage, allBlocked: false, lastError: '' };
     } catch (err) {
       lastError = err.message;
       console.error(`  ✗ [Próba ${attempt}/${maxRetries}] ${err.message}`);
@@ -136,7 +187,7 @@ async function fetchAndParse(targetUrl, selector, discountSelector, headers, max
     }
   }
 
-  return { price: null, discount: null, allBlocked, lastError };
+  return { price: null, discount: null, ogImage: null, allBlocked, lastError };
 }
 
 export function parsePrice(text) {
@@ -165,33 +216,128 @@ export function parsePrice(text) {
 }
 
 /**
+ * Parsuje datę lub godzinę wygaśnięcia promocji i zwraca UNIX timestamp w sekundach (dla Discord dynamic timestamp <t:UNIX:R>).
+ * Obsługuje formaty: "do 15.09", "do 20.09.2026", "do 15 września", "do 23:59" itp.
+ */
+export function parsePromoExpiry(text) {
+  if (!text) return null;
+
+  const POLISH_MONTHS = {
+    stycznia: 0, styczeń: 0,
+    lutego: 1, luty: 1,
+    marca: 2, marzec: 2,
+    kwietnia: 3, kwiecień: 3,
+    maja: 4, maj: 4,
+    czerwca: 5, czerwiec: 5,
+    lipca: 6, lipiec: 6,
+    sierpnia: 7, sierpień: 7,
+    września: 8, wrzesień: 8,
+    października: 9, październik: 9,
+    listopada: 10, listopad: 10,
+    grudnia: 11, grudzień: 11,
+  };
+
+  const now = new Date();
+  const currentYear = now.getFullYear();
+
+  // 1. Format numeryczny: "do 15.09", "do 15.09.2026", "do 15.09 godz. 23:59"
+  const numericMatch = text.match(/(?:do|ważn[ya]|ważne\s+do|obowiązuje\s+do)\s+(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?(?:\s+(?:godz\.?|o\s+godz\.?|o)?\s*(\d{1,2}):(\d{2}))?/i);
+  if (numericMatch) {
+    const day = parseInt(numericMatch[1], 10);
+    const month = parseInt(numericMatch[2], 10) - 1;
+    let year = numericMatch[3] ? parseInt(numericMatch[3], 10) : currentYear;
+    if (year < 100) year += 2000;
+
+    const hour = numericMatch[4] ? parseInt(numericMatch[4], 10) : 23;
+    const minute = numericMatch[5] ? parseInt(numericMatch[5], 10) : 59;
+
+    const date = new Date(year, month, day, hour, minute, 59);
+    if (!isNaN(date.getTime())) {
+      if (!numericMatch[3] && date.getTime() < now.getTime() - 30 * 24 * 3600 * 1000) {
+        date.setFullYear(currentYear + 1);
+      }
+      return Math.floor(date.getTime() / 1000);
+    }
+  }
+
+  // 2. Format słowny: "do 15 września", "do 15 września 2026", "do 15 września godz. 23:59"
+  const monthsRegexStr = Object.keys(POLISH_MONTHS).join('|');
+  const wordMatch = text.match(new RegExp(`(?:do|ważn[ya]|ważne\\s+do|obowiązuje\\s+do)\\s+(\\d{1,2})\\s+(${monthsRegexStr})(?:\\s+(\\d{4}))?(?:\\s+(?:godz\\.?|o\\s+godz\\.?|o)?\\s*(\\d{1,2}):(\\d{2}))?`, 'i'));
+  if (wordMatch) {
+    const day = parseInt(wordMatch[1], 10);
+    const monthKey = wordMatch[2].toLowerCase();
+    const month = POLISH_MONTHS[monthKey];
+    const year = wordMatch[3] ? parseInt(wordMatch[3], 10) : currentYear;
+    const hour = wordMatch[4] ? parseInt(wordMatch[4], 10) : 23;
+    const minute = wordMatch[5] ? parseInt(wordMatch[5], 10) : 59;
+
+    const date = new Date(year, month, day, hour, minute, 59);
+    if (!isNaN(date.getTime())) {
+      if (!wordMatch[3] && date.getTime() < now.getTime() - 30 * 24 * 3600 * 1000) {
+        date.setFullYear(currentYear + 1);
+      }
+      return Math.floor(date.getTime() / 1000);
+    }
+  }
+
+  // 3. Samo "do godz. 23:59" lub "do 23:59"
+  const timeOnlyMatch = text.match(/(?:do\s+(?:godz\.?|godziny)?\s*)(\d{1,2}):(\d{2})/i);
+  if (timeOnlyMatch) {
+    const hour = parseInt(timeOnlyMatch[1], 10);
+    const minute = parseInt(timeOnlyMatch[2], 10);
+    const date = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour, minute, 59);
+    if (!isNaN(date.getTime())) {
+      return Math.floor(date.getTime() / 1000);
+    }
+  }
+
+  return null;
+}
+
+/**
  * Parsuje tekst rabatu w zależności od domeny.
+ * Zwraca { value, isPercent, isFinalPrice, couponCode, expiresAt, rawCode }
  */
 export function parseDiscountDomain(text, domain) {
   if (!text) return null;
+
+  const expiresAt = parsePromoExpiry(text);
   
   if (domain === 'wojas.pl' || domain === 'wojas.com') {
-      let finalPrice = null;
-      let code = null;
-      const priceMatch = text.match(/za\s*([\d\s.,]+)\s*zł/i);
-      if (priceMatch) finalPrice = parsePrice(priceMatch[1]);
-      const codeMatch = text.match(/kodem\s*(\w+)/i);
-      if (codeMatch) code = `Kod: ${codeMatch[1]}`;
-      if (finalPrice !== null) {
-          return { isFinalPrice: true, value: finalPrice, rawCode: code };
-      }
+    let finalPrice = null;
+    let couponCode = null;
+    const priceMatch = text.match(/za\s*([\d\s.,]+)\s*zł/i);
+    if (priceMatch) finalPrice = parsePrice(priceMatch[1]);
+    const codeMatch = text.match(/kodem\s*([a-zA-Z0-9_-]+)/i);
+    if (codeMatch) couponCode = codeMatch[1].toUpperCase();
+    if (finalPrice !== null) {
+      return {
+        isFinalPrice: true,
+        value: finalPrice,
+        couponCode,
+        expiresAt,
+        rawCode: couponCode ? `Kod: ${couponCode}` : null,
+      };
+    }
   }
   
   if (domain === 'modivo.pl') {
-      let discountVal = null;
-      let code = null;
-      const pctMatch = text.match(/([\d\s.,]+)\s*%/);
-      if (pctMatch) discountVal = parsePrice(pctMatch[1]);
-      const codeMatch = text.match(/kod:\s*(\w+)/i);
-      if (codeMatch) code = `Kod: ${codeMatch[1]}`;
-      if (discountVal !== null) {
-          return { isPercent: true, value: discountVal, rawCode: code };
-      }
+    let discountVal = null;
+    let couponCode = null;
+    const pctMatch = text.match(/([\d\s.,]+)\s*%/);
+    if (pctMatch) discountVal = parsePrice(pctMatch[1]);
+    const codeMatch = text.match(/(?:kod(?:em)?|code):\s*([a-zA-Z0-9_-]+)/i) ||
+                      text.match(/(?:z\s+)?kodem\s+([a-zA-Z0-9_-]+)/i);
+    if (codeMatch) couponCode = codeMatch[1].toUpperCase();
+    if (discountVal !== null) {
+      return {
+        isPercent: true,
+        value: discountVal,
+        couponCode,
+        expiresAt,
+        rawCode: couponCode ? `Kod: ${couponCode}` : null,
+      };
+    }
   }
   
   // DEFAULT 
@@ -202,5 +348,18 @@ export function parseDiscountDomain(text, domain) {
   const value = parsePrice(match[0]);
   if (value === null) return null;
 
-  return { value, isPercent, rawCode: null };
+  let couponCode = null;
+  const genericCodeMatch = text.match(/(?:kod(?:em)?|code|rabat):\s*([a-zA-Z0-9_-]+)/i) ||
+                           text.match(/(?:z\s+)?kodem\s+([a-zA-Z0-9_-]+)/i);
+  if (genericCodeMatch) {
+    couponCode = genericCodeMatch[1].toUpperCase();
+  }
+
+  return {
+    value,
+    isPercent,
+    couponCode,
+    expiresAt,
+    rawCode: couponCode ? `Kod: ${couponCode}` : null,
+  };
 }

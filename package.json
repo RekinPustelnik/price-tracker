@@ -4,7 +4,9 @@
   "description": "Automatyczny tracker cen produktów z Google Sheets i Discord",
   "type": "module",
   "scripts": {
-    "check": "node src/index.js"
+    "check": "node src/index.js",
+    "check:dry": "node src/index.js --dry-run",
+    "test-selector": "node scripts/test-selector.js"
   },
   "dependencies": {
     "cheerio": "^1.0.0",
