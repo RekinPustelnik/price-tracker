@@ -2,8 +2,8 @@ name: 👑 Sprawdź ceny (Pełny - Z API)
 
 on:
   schedule:
-    # Uruchamia się dwa razy dziennie - o 8:00 i 20:00 UTC
-    - cron: '0 8,20 * * *'
+    # Uruchamia się raz dziennie - o 8:00 UTC
+    - cron: '0 8 * * *'
   # Możliwość ręcznego uruchomienia z zakładki Actions
   workflow_dispatch:
 
