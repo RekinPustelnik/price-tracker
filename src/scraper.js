@@ -499,6 +499,27 @@ export function parseDiscountDomain(text, domain) {
       };
     }
   }
+
+  // Answear: "extra -10% z kodem: AT*", "-20% z kodem: SALE20!"
+  if (domain === 'answear.com') {
+    let discountVal = null;
+    let couponCode = null;
+    const pctMatch = text.match(/-?\s*([\d\s.,]+)\s*%/);
+    if (pctMatch) discountVal = parsePrice(pctMatch[1]);
+    // Kod answear może zawierać znaki specjalne (*, !, itp.)
+    const codeMatch = text.match(/(?:kod(?:em)?|code):\s*(\S+)/i) ||
+                      text.match(/(?:z\s+)?kodem\s+(\S+)/i);
+    if (codeMatch) couponCode = codeMatch[1].replace(/[.,;:]+$/, '');
+    if (discountVal !== null) {
+      return {
+        isPercent: true,
+        value: discountVal,
+        couponCode,
+        expiresAt,
+        rawCode: couponCode ? `Kod: ${couponCode}` : null,
+      };
+    }
+  }
   
   // DEFAULT 
   const isPercent = text.includes('%');
