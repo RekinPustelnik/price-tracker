@@ -13,6 +13,21 @@ const USER_AGENTS = [
 ];
 
 const TIMEOUT_MS = 45_000;
+const TIMEOUT_RENDER_MS = 90_000;
+
+// Domeny SPA wymagające renderowania JavaScript w przeglądarce.
+// Bezpośredni fetch zwraca challenge bota (Akamai/PerimeterX) zamiast HTML z ceną.
+// Dla tych domen pomijamy fazę bezpośrednią i od razu używamy ScraperAPI z render=true.
+const JS_RENDER_DOMAINS = [
+  'zara.com',
+];
+
+/**
+ * Sprawdza, czy dana domena wymaga renderowania JavaScript.
+ */
+function requiresJsRender(domain) {
+  return JS_RENDER_DOMAINS.some(d => domain === d || domain.endsWith('.' + d));
+}
 
 /**
  * Zwraca losowy User-Agent z listy.
@@ -49,7 +64,49 @@ function buildHeaders(url) {
 
 export async function scrapePrice(url, selector, discountSelector = '', domain = '') {
   let lastError = '';
+  const needsRender = requiresJsRender(domain);
 
+  // ── Domeny SPA (np. Zara): pomijamy bezpośredni fetch, od razu ScraperAPI z render=true ──
+  if (needsRender) {
+    const scraperApiKey = process.env.SCRAPER_API_KEY;
+    if (!scraperApiKey) {
+      console.log(`  ⚠ Domena ${domain} wymaga ScraperAPI z render=true, ale brak SCRAPER_API_KEY`);
+      return {
+        price: null,
+        discount: null,
+        ogImage: null,
+        blocked: true,
+        error: `Domena ${domain} wymaga renderowania JS (ScraperAPI z render=true), ale brak klucza SCRAPER_API_KEY`,
+      };
+    }
+
+    console.log(`  → Domena SPA — ScraperAPI z render=true...`);
+    const proxyUrl = `https://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&render=true&country_code=pl`;
+    const renderResult = await fetchAndParse(proxyUrl, selector, discountSelector, {}, 2, domain, url, TIMEOUT_RENDER_MS);
+    if (renderResult.price !== null) {
+      return {
+        price: renderResult.price,
+        discount: renderResult.discount,
+        ogImage: renderResult.ogImage,
+        blocked: false,
+        error: null,
+      };
+    }
+    lastError = renderResult.lastError;
+
+    if (renderResult.allBlocked) {
+      return {
+        price: null,
+        discount: null,
+        ogImage: null,
+        blocked: true,
+        error: lastError || `Strona ${domain} zablokowana nawet przez ScraperAPI z renderowaniem`,
+      };
+    }
+    return { price: null, discount: null, ogImage: null, blocked: false, error: lastError };
+  }
+
+  // ── Standardowe domeny: Faza 1 (bezpośredni fetch) + Faza 2 (ScraperAPI fallback) ──
   console.log(`  → Próba bezpośrednia...`);
   const directResult = await fetchAndParse(url, selector, discountSelector, buildHeaders(url), 2, domain, url);
   if (directResult.price !== null) {
@@ -93,7 +150,7 @@ export async function scrapePrice(url, selector, discountSelector = '', domain =
   return { price: null, discount: null, ogImage: null, blocked: false, error: lastError };
 }
 
-async function fetchAndParse(targetUrl, selector, discountSelector, headers, maxRetries, domain, originalUrl = targetUrl) {
+async function fetchAndParse(targetUrl, selector, discountSelector, headers, maxRetries, domain, originalUrl = targetUrl, timeoutMs = TIMEOUT_MS) {
   let allBlocked = true;
   let lastError = '';
 
@@ -101,7 +158,7 @@ async function fetchAndParse(targetUrl, selector, discountSelector, headers, max
     try {
       const response = await fetch(targetUrl, {
         headers,
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
         redirect: 'follow',
       });
 
@@ -152,6 +209,12 @@ async function fetchAndParse(targetUrl, selector, discountSelector, headers, max
         rawText = $el.text().trim();
       }
 
+      // Fallback dla domen SPA: jeśli główny selektor nie zadziałał, próbuj alternatyw
+      if (!rawText && requiresJsRender(domain)) {
+        console.log(`    ↳ Selektor "${effectiveSelector}" pusty — próbuję fallback (JSON-LD / meta / heurystyka)...`);
+        rawText = extractPriceFallback($, domain);
+      }
+
       if (!rawText) {
         throw new Error(`Selektor "${effectiveSelector}" nie znalazł elementu lub element jest pusty`);
       }
@@ -188,6 +251,103 @@ async function fetchAndParse(targetUrl, selector, discountSelector, headers, max
   }
 
   return { price: null, discount: null, ogImage: null, allBlocked, lastError };
+}
+
+/**
+ * Heurystyczna ekstrakcja ceny z wyrenderowanego HTML domen SPA.
+ * Próbuje kolejno: JSON-LD, meta tagi, przeszukiwanie DOM.
+ * Zwraca surowy tekst ceny lub '' jeśli nie znaleziono.
+ */
+function extractPriceFallback($, domain) {
+  // 1. JSON-LD (schema.org Product)
+  const ldScripts = $('script[type="application/ld+json"]');
+  for (let i = 0; i < ldScripts.length; i++) {
+    try {
+      const json = JSON.parse($(ldScripts[i]).html());
+      const price = findPriceInJsonLd(json);
+      if (price) {
+        console.log(`    ✓ Fallback: cena z JSON-LD = "${price}"`);
+        return String(price);
+      }
+    } catch { /* ignoruj błędy parsowania JSON */ }
+  }
+
+  // 2. Meta tagi product:price:amount lub og:price:amount
+  const metaPrice = $('meta[property="product:price:amount"]').attr('content') ||
+                    $('meta[property="og:price:amount"]').attr('content') ||
+                    $('meta[name="product:price:amount"]').attr('content');
+  if (metaPrice) {
+    console.log(`    ✓ Fallback: cena z meta tag = "${metaPrice}"`);
+    return metaPrice;
+  }
+
+  // 3. Heurystyka DOM: szukamy krótkich tekstów z ceną (zł, PLN, €, lub sam format liczbowy)
+  const pricePattern = /\d+[.,]\d{2}\s*(zł|PLN|€|EUR)?/;
+  const candidates = [];
+  $('*').each((_, el) => {
+    const $node = $(el);
+    // Pomijamy skrypty, style i elementy z wieloma dziećmi (kontenery)
+    const tag = (el.tagName || el.name || '').toLowerCase();
+    if (tag === 'script' || tag === 'style' || tag === 'noscript') return;
+    
+    const text = $node.clone().children().remove().end().text().trim();
+    if (text && text.length < 30 && pricePattern.test(text)) {
+      candidates.push(text);
+    }
+  });
+
+  if (candidates.length > 0) {
+    // Preferuj kandydatów z "zł" lub "PLN"
+    const withCurrency = candidates.find(c => c.includes('zł') || c.includes('PLN'));
+    const picked = withCurrency || candidates[0];
+    console.log(`    ✓ Fallback: cena z heurystyki DOM = "${picked}" (z ${candidates.length} kandydatów)`);
+    return picked;
+  }
+
+  console.log(`    ✗ Fallback: nie znaleziono ceny żadną metodą`);
+  return '';
+}
+
+/**
+ * Rekurencyjnie przeszukuje obiekt JSON-LD w poszukiwaniu ceny produktu.
+ */
+function findPriceInJsonLd(obj) {
+  if (!obj || typeof obj !== 'object') return null;
+
+  // Obsługa tablicy (np. @graph)
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      const price = findPriceInJsonLd(item);
+      if (price) return price;
+    }
+    return null;
+  }
+
+  // Sprawdź czy to obiekt Product/Offer z ceną
+  if (obj['@type'] === 'Product' || obj['@type'] === 'Offer' ||
+      obj['@type'] === 'AggregateOffer' ||
+      (Array.isArray(obj['@type']) && (obj['@type'].includes('Product') || obj['@type'].includes('Offer')))) {
+    // Bezpośrednia cena
+    if (obj.price) return obj.price;
+    // offers.price
+    if (obj.offers) {
+      const offersPrice = findPriceInJsonLd(obj.offers);
+      if (offersPrice) return offersPrice;
+    }
+    // lowPrice / highPrice
+    if (obj.lowPrice) return obj.lowPrice;
+  }
+
+  // Przeszukaj zagnieżdżone obiekty
+  for (const key of Object.keys(obj)) {
+    if (key.startsWith('@')) continue;
+    const val = obj[key];
+    if (typeof val === 'object') {
+      const price = findPriceInJsonLd(val);
+      if (price) return price;
+    }
+  }
+  return null;
 }
 
 export function parsePrice(text) {
