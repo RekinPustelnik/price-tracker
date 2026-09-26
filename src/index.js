@@ -113,10 +113,35 @@ async function main() {
          discountStr = couponCode ? `Kod: ${couponCode} (-${saved.toFixed(2)} zł)` : `-${saved.toFixed(2)} zł`;
       } else if (result.discount.isPercent) {
         newDiscountedPrice = newPrice * (1 - result.discount.value / 100);
-        discountStr = couponCode ? `Kod: ${couponCode} (-${result.discount.value}%)` : `-${result.discount.value}%`;
+        const minOrder = result.discount.minOrderAmount;
+        if (minOrder && newPrice < minOrder) {
+          discountStr = couponCode
+            ? `Kod: ${couponCode} (-${result.discount.value}% [min. ${minOrder} zł])`
+            : `-${result.discount.value}% (min. ${minOrder} zł)`;
+        } else {
+          discountStr = couponCode ? `Kod: ${couponCode} (-${result.discount.value}%)` : `-${result.discount.value}%`;
+        }
       } else {
-        newDiscountedPrice = newPrice - result.discount.value;
-        discountStr = couponCode ? `Kod: ${couponCode} (-${result.discount.value.toFixed(2)} zł)` : `-${result.discount.value.toFixed(2)} zł`;
+        // Rabat kwotowy (np. 50 zł)
+        const minOrder = result.discount.minOrderAmount;
+        let discountAmount = result.discount.value;
+
+        // Jeśli produkt nie osiąga minimalnej kwoty zamówienia, rabat koszykowy rozkłada się proporcjonalnie.
+        // Zakładamy dobicie koszyka do minimum + ok. 10 zł.
+        if (minOrder && newPrice < minOrder) {
+          const assumedCart = minOrder + 10;
+          const ratio = newPrice / assumedCart;
+          discountAmount = Math.round(result.discount.value * ratio * 100) / 100;
+          newDiscountedPrice = newPrice - discountAmount;
+          discountStr = couponCode
+            ? `Kod: ${couponCode} (-${discountAmount.toFixed(2)} zł [prop. z ${result.discount.value} zł])`
+            : `-${discountAmount.toFixed(2)} zł (prop. z ${result.discount.value} zł)`;
+        } else {
+          newDiscountedPrice = newPrice - discountAmount;
+          discountStr = couponCode
+            ? `Kod: ${couponCode} (-${discountAmount.toFixed(2)} zł)`
+            : `-${discountAmount.toFixed(2)} zł`;
+        }
       }
       if (newDiscountedPrice < 0) newDiscountedPrice = 0;
       newDiscountedPrice = Math.round(newDiscountedPrice * 100) / 100;
@@ -177,6 +202,8 @@ async function main() {
             couponCode,
             expiresAt: promoExpiresAt,
             ogImage: result.ogImage,
+            minOrderAmount: result.discount?.minOrderAmount || null,
+            messageTemplate: result.discount?.messageTemplate || null,
           }
         );
       } else {

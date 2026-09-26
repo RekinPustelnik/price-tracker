@@ -21,7 +21,7 @@ export async function sendPriceAlert(
     return;
   }
 
-  const { couponCode = null, expiresAt = null, ogImage = null } = options;
+  const { couponCode = null, expiresAt = null, ogImage = null, minOrderAmount = null, messageTemplate = null } = options;
 
   let domain = '';
   try {
@@ -82,6 +82,27 @@ export async function sendPriceAlert(
       name: '🏷️ Kod rabatowy',
       value: `\`${couponCode}\` *(kliknij, aby skopiować)*`,
       inline: true,
+    });
+  }
+
+  // Warunki promocji (np. minimalna kwota zamówienia)
+  if (messageTemplate || minOrderAmount) {
+    let conditionText = '';
+    if (minOrderAmount) {
+      if (newPrice < minOrderAmount) {
+        conditionText = `⚠️ Min. zamówienie: **${minOrderAmount.toFixed(2)} zł** (produkt poniżej min. kwoty — rabat wyliczony proporcjonalnie przy koszyku ~**${(minOrderAmount + 10).toFixed(2)} zł**)`;
+      } else {
+        conditionText = `⚠️ Min. zamówienie: **${minOrderAmount.toFixed(2)} zł**`;
+      }
+      if (messageTemplate) conditionText += `\n${messageTemplate}`;
+    } else if (messageTemplate) {
+      conditionText = messageTemplate;
+    }
+
+    embed.fields.push({
+      name: '📋 Warunki promocji',
+      value: conditionText.substring(0, 300),
+      inline: false,
     });
   }
 

@@ -19,6 +19,7 @@ Bezserwerowy, zautomatyzowany tracker cen produktów ze sklepów internetowych. 
   - **Faza 1 (Direct)**: Losowa rotacja realistycznych User-Agentów i nagłówków przeglądarki.
   - **Faza 2 (Proxy Fallback)**: Automatyczne przekierowanie przez **ScraperAPI** w przypadku wykrycia blokad (HTTP 403 / Cloudflare).
 - 🔢 **Inteligentny parser cen (`parsePrice`)**: Niezawodnie obsługuje formaty polskie i międzynarodowe (`1 234,56 zł`, `1,234.56`, `239,99 zł.` itp.).
+- 🏷️ **Inteligentne kupony i rabaty**: Automatyczna detekcja kodów promocyjnych (np. Zalando, Modivo, Wojas, Answear). Dla rabatów kwotowych z minimalnym zamówieniem (np. Zalando -50 zł od 300 zł) system wylicza rzeczywisty rabat proporcjonalnie przy dobitce koszyka (+10 zł), gdy cena produktu jest poniżej progu.
 - 📈 **Śledzenie historii**: Automat zapisuje bieżącą cenę, historycznie najniższą cenę oraz dokładny znacznik czasu ostatniej weryfikacji.
 
 ---
@@ -78,7 +79,7 @@ Przykładowe konfiguracje:
 - `footshop.pl` | `[itemprop="price"]` | *(puste)*
 - `modivo.pl` | `price > .price-container > .price-wrapper` | `promotion-badge`
 - `wojas.pl` | `#priceSelected` | `.box-list-product-code`
-- `zalando.pl` | `[data-testid="pdp-price-container"] span` | *(puste)*
+- `zalando.pl` | `[data-testid="pdp-price-container"] span` | *(puste — kupony i progi pobierane automatycznie z danych strony)*
 
 ### 2. Utwórz Google Cloud Service Account
 1. Wejdź na [Google Cloud Console](https://console.cloud.google.com/), stwórz projekt i włącz **Google Sheets API**.

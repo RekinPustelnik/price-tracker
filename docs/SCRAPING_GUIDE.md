@@ -83,7 +83,10 @@ Skrypt umożliwia podanie selektora rabatu w kolumnie **C zakładki `Domeny`** (
 2. **Modivo (`modivo.pl`)**:
    - Sklep wyświetla badge np. *"extra -20% Kod: SEPT"*.
    - Skrypt wyciąga wartość procentową (`20%`) oraz kod promocyjny, a następnie sam oblicza cenę po rabacie z ceny bazowej.
-3. **Logika domyślna (dla pozostałych sklepów)**:
+3. **Zalando (`zalando.pl`, domeny międzynarodowe)**:
+   - Nie wymaga wpisywania selektora rabatu — kupony, ich wartości (twarda kwota lub procent) oraz warunki progowe pobierane są automatycznie ze skryptów cache GraphQL (`incentives`).
+   - Dla rabatów kwotowych z progiem (np. 50 zł od 300 zł) system przelicza proporcjonalny rabat dla produktów tańszych niż próg (zakładając dobitkę koszyka do minimum + ok. 10 zł).
+4. **Logika domyślna (dla pozostałych sklepów)**:
    - Skrypt sprawdza, czy tekst zawiera znak `%`.
    - Jeśli tak, oblicza obniżkę procentową.
    - Jeśli nie, wyszukuje pierwszą liczbę w tekście (np. z ciągu `EXTRA30` wyciągnie `30`) lub traktuje kwotę jako rabat stały.
@@ -97,7 +100,7 @@ Skrypt umożliwia podanie selektora rabatu w kolumnie **C zakładki `Domeny`** (
 | **footshop.pl** | `[itemprop="price"]` | — | Pobiera cenę z mikrodanych Schema. |
 | **modivo.pl** | `price > .price-container > .price-wrapper` | `promotion-badge` | Pobiera bazę i badge rabatowy. |
 | **wojas.pl** | `#priceSelected` | `.box-list-product-code` | Wyciąga cenę z kodem EXTRA. |
-| **zalando.pl** | `[data-testid="pdp-price-container"] span` | — | Wymaga ScraperAPI (tryb pełny). |
+| **zalando.pl** | `[data-testid="pdp-price-container"] span` | *(automat GraphQL)* | Rabat i progi wykrywane automatycznie. Wymaga ScraperAPI (tryb pełny). |
 | **perfectblue.pl** | `p.price ins .amount, p.price .amount` | — | Obsługuje motyw Flatsome/WooCommerce. |
 | **answear.com** | `[class*="Price__wrapper__"] [class*="priceSale"] span, [class*="Price__wrapper__"] [class*="priceRegular"]` | — | Dynamiczne klasy styli CSS. |
 | **zibru.com** | `.price-item` | — | Standardowy Shopify. |

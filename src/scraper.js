@@ -22,11 +22,25 @@ const JS_RENDER_DOMAINS = [
   'zara.com',
 ];
 
+// Domeny Zalando — w HTML-u zawierają dane GraphQL z cenami i kuponami (incentives).
+const ZALANDO_DOMAINS = [
+  'zalando.pl', 'zalando.de', 'zalando.fr', 'zalando.it', 'zalando.es',
+  'zalando.nl', 'zalando.be', 'zalando.at', 'zalando.ch', 'zalando.co.uk',
+  'zalando.se', 'zalando.dk', 'zalando.fi', 'zalando.no', 'zalando.ie',
+];
+
 /**
  * Sprawdza, czy dana domena wymaga renderowania JavaScript.
  */
 function requiresJsRender(domain) {
   return JS_RENDER_DOMAINS.some(d => domain === d || domain.endsWith('.' + d));
+}
+
+/**
+ * Sprawdza, czy dana domena to Zalando.
+ */
+function isZalandoDomain(domain) {
+  return ZALANDO_DOMAINS.some(d => domain === d || domain.endsWith('.' + d));
 }
 
 /**
@@ -230,6 +244,15 @@ async function fetchAndParse(targetUrl, selector, discountSelector, headers, max
         const rawDiscount = $(discountSelector).first().text().trim();
         if (rawDiscount) {
           discount = parseDiscountDomain(rawDiscount, domain);
+        }
+      }
+
+      // Zalando: wyciągnij kupon (incentive) z zagnieżdżonego JSON-a GraphQL
+      if (isZalandoDomain(domain) && !discount) {
+        const zalandoIncentive = extractZalandoIncentive($);
+        if (zalandoIncentive) {
+          discount = zalandoIncentive;
+          console.log(`  ✓ Zalando incentive: kod ${discount.couponCode}, wartość: ${discount.value}${discount.isPercent ? '%' : ' zł'}${discount.minOrderAmount ? ` (min. ${discount.minOrderAmount} zł)` : ''}`);
         }
       }
 
@@ -542,5 +565,111 @@ export function parseDiscountDomain(text, domain) {
     couponCode,
     expiresAt,
     rawCode: couponCode ? `Kod: ${couponCode}` : null,
+  };
+}
+
+/**
+ * Wyciąga kupon rabatowy Zalando z zagnieżdżonego JSON-a w <script> tagach.
+ *
+ * Zalando osadza dane w JS (runtime['hydratePartial']({cache: {...}})).
+ * Wewnątrz cache znajdują się obiekty incentive z couponCode i messageTemplate.
+ * Strategia: szukamy "couponCode" w surowym tekście i wyodrębniamy otaczający
+ * obiekt JSON przez brace-matching (cofanie do { i liczenie zagnieżdżeń).
+ *
+ * @param {cheerio.CheerioAPI} $ - Załadowany dokument HTML (cheerio)
+ * @returns {object|null} Obiekt rabatu kompatybilny z parseDiscountDomain lub null
+ */
+function extractZalandoIncentive($) {
+  const scripts = $('script');
+  for (let i = 0; i < scripts.length; i++) {
+    const raw = $(scripts[i]).html();
+    if (!raw || !raw.includes('"couponCode"')) continue;
+
+    const couponIdx = raw.indexOf('"couponCode"');
+
+    // Cofnij się do otwarcia { obiektu incentive
+    let start = couponIdx;
+    let braces = 0;
+    for (let j = couponIdx; j >= 0; j--) {
+      if (raw[j] === '}') braces++;
+      if (raw[j] === '{') {
+        braces--;
+        if (braces < 0) { start = j; break; }
+      }
+    }
+    // Idź do przodu do zamknięcia }
+    let end = couponIdx;
+    braces = 0;
+    for (let j = start; j < raw.length; j++) {
+      if (raw[j] === '{') braces++;
+      if (raw[j] === '}') {
+        braces--;
+        if (braces === 0) { end = j + 1; break; }
+      }
+    }
+
+    try {
+      const incObj = JSON.parse(raw.substring(start, end));
+      if (incObj.couponCode) {
+        return parseZalandoIncentive(incObj);
+      }
+    } catch { /* fragment nie jest poprawnym JSON-em */ }
+  }
+  return null;
+}
+
+/**
+ * Parsuje pojedynczy obiekt incentive Zalando i zwraca obiekt rabatu
+ * kompatybilny z istniejącym formatem systemu.
+ *
+ * Obsługuje messageTemplate w formatach:
+ *   - "zniżka 50 zł" → kwota
+ *   - "zniżka 20%" → procent
+ *   - "Dotyczy zamówień powyżej 300,00 zł" → minOrderAmount
+ *
+ * @param {object} incentive - Obiekt incentive z API Zalando
+ * @returns {object} Obiekt rabatu: { value, isPercent, couponCode, minOrderAmount, expiresAt, rawCode }
+ */
+function parseZalandoIncentive(incentive) {
+  const msg = incentive.messageTemplate || '';
+  let value = null;
+  let isPercent = false;
+  let minOrderAmount = null;
+
+  // 1. Wyciągnij minimalną kwotę zamówienia (np. "powyżej 300,00 zł", "od 200 zł", "min. 300 zł")
+  const minMatch = msg.match(/(?:powyżej|od|min(?:imalna)?(?:\s+wartość|\s+zamówienie|\s+kwota)?\.?)\s*(\d+(?:[.,]\d+)?)\s*zł/i);
+  if (minMatch) {
+    minOrderAmount = parseFloat(minMatch[1].replace(',', '.'));
+  }
+
+  // Usuwamy fragment z warunkiem minimalnym, aby nie mylić kwoty progu zamówienia z kwotą rabatu
+  const msgWithoutMin = minMatch ? msg.replace(minMatch[0], '') : msg;
+
+  // 2. Sprawdzamy czy to rabat procentowy (np. "zniżka 20%", "-15%", "15%")
+  const percentMatch = msgWithoutMin.match(/(\d+(?:[.,]\d+)?)\s*%/);
+  if (percentMatch) {
+    value = parseFloat(percentMatch[1].replace(',', '.'));
+    isPercent = true;
+  } else {
+    // 3. Twarda kwota rabatu (np. "zniżka 50 zł", "rabat 30 zł", "50 zł zniżki", "50 zł")
+    const amountMatch = msgWithoutMin.match(/(?:zniżk[ai]|rabat[u]?|taniej o)\s*(\d+(?:[.,]\d+)?)\s*zł/i) ||
+                        msgWithoutMin.match(/(\d+(?:[.,]\d+)?)\s*zł/i);
+    if (amountMatch) {
+      value = parseFloat(amountMatch[1].replace(',', '.'));
+      isPercent = false;
+    }
+  }
+
+  // Parsuj datę wygaśnięcia z messageTemplate (jeśli zawiera "do ...")
+  const expiresAt = parsePromoExpiry(msg);
+
+  return {
+    value: value || 0,
+    isPercent,
+    couponCode: incentive.couponCode,
+    minOrderAmount,
+    expiresAt,
+    rawCode: `Kod: ${incentive.couponCode}`,
+    messageTemplate: msg, // zachowaj oryginalny opis do wyświetlenia
   };
 }

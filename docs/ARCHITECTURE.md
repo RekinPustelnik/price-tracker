@@ -136,7 +136,15 @@ Implementuje dwufazowy mechanizm pobierania i ekstrakcji cen oraz rabatów:
 - **`parseDiscountDomain(text, domain)`**: Inteligentnie interpretuje informacje o rabatach:
   - **Wojas**: Wyciąga finalną cenę z tekstów typu *"Ten produkt kupisz za 181.30 zł z kodem EXTRA30"*.
   - **Modivo**: Wyciąga procent i kod promocyjny z tekstów typu *"extra -20% Kod: SEPT"*.
+  - **Answear**: Wyciąga procent i kody ze znakami specjalnymi.
   - **Domyślnie**: Szuka symbolu `%` lub pierwszej liczby w tekście (np. `EXTRA30` $\rightarrow$ 30%).
+- **`extractZalandoIncentive($)`**: Dedykowany parser dla Zalando (`zalando.pl`, `zalando.de` itp.):
+  - Automatycznie przeszukuje tagi `<script>` zawierające pamięć podręczną Apollo/GraphQL (`hydratePartial`).
+  - Wyciąga kod rabatowy (`couponCode`), wartość obniżki (twarda kwota lub procent) oraz warunek minimalnego zamówienia (`minOrderAmount`).
+  - **Obliczanie rabatu proporcjonalnego (`index.js`)**:
+    - Gdy cena produktu $\ge$ próg: rabat kwotowy odliczany jest w całości.
+    - Gdy cena produktu $<$ próg (np. 200 zł przy minimum 300 zł): system zakłada dobicie koszyka do minimum + 10 zł ($310\text{ zł}$) i wylicza proporcjonalny rabat przypadający na dany produkt ($\text{rabat} \times \frac{\text{cena}}{310}$).
+    - W przypadku rabatu procentowego, rabat stosuje się bezpośrednio, dodając adnotację o progu minimalnym koszyka.
 
 ---
 
