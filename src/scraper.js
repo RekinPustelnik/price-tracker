@@ -39,7 +39,7 @@ function requiresJsRender(domain) {
 /**
  * Sprawdza, czy dana domena to Zalando.
  */
-function isZalandoDomain(domain) {
+export function isZalandoDomain(domain) {
   return ZALANDO_DOMAINS.some(d => domain === d || domain.endsWith('.' + d));
 }
 

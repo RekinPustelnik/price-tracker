@@ -145,6 +145,10 @@ Implementuje dwufazowy mechanizm pobierania i ekstrakcji cen oraz rabatów:
     - Gdy cena produktu $\ge$ próg: rabat kwotowy odliczany jest w całości.
     - Gdy cena produktu $<$ próg (np. 200 zł przy minimum 300 zł): system zakłada dobicie koszyka do minimum + 10 zł ($310\text{ zł}$) i wylicza proporcjonalny rabat przypadający na dany produkt ($\text{rabat} \times \frac{\text{cena}}{310}$).
     - W przypadku rabatu procentowego, rabat stosuje się bezpośrednio, dodając adnotację o progu minimalnym koszyka.
+  - **Zasada stałego rabatu 15% (ważny do 31.10.2026)**:
+    - System sprawdza w czasie rzeczywistym datę ważności stałego rabatu użytkownika (31 października 2026 r. 23:59:59).
+    - Jeśli rabat jest aktywny, kalkulator porównuje cenę po rabacie 15% z ceną po ewentualnym kuponie znalezionym na stronie Zalando i automatycznie wybiera wariant korzystniejszy (dający niższą cenę).
+    - Po 31.10.2026 r. zasada automatycznie się dezaktywuje (przedawnienie), a system korzysta wyłącznie z aktualnych promocji na stronie.
 
 ---
 

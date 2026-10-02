@@ -1,8 +1,96 @@
-import { scrapePrice } from './scraper.js';
+import { scrapePrice, isZalandoDomain } from './scraper.js';
 import { getProducts, getDomainConfig, updatePrice, incrementErrorCount } from './sheets.js';
 import { sendPriceAlert, sendErrorAlert, sendSummary } from './discord.js';
 
 const ERROR_ALERT_THRESHOLD = 5;
+
+// Stały rabat użytkownika dla Zalando: 15% ważny do końca października 2026 r. (31.10.2026 23:59:59)
+const ZALANDO_CUSTOM_PROMO = {
+  expiryDate: new Date('2026-10-31T23:59:59+01:00'),
+  percent: 15,
+};
+
+/**
+ * Sprawdza, czy stały rabat 15% dla Zalando jest nadal aktywny.
+ * Zwraca obiekt rabatu lub null, jeśli minęła data ważności (przedawniony).
+ */
+function getZalandoStandingDiscount() {
+  const now = new Date();
+  if (now > ZALANDO_CUSTOM_PROMO.expiryDate) {
+    return null;
+  }
+  return {
+    value: ZALANDO_CUSTOM_PROMO.percent,
+    isPercent: true,
+    couponCode: null,
+    discountStr: `Rabat 15% (-15%)`,
+    expiresAt: Math.floor(ZALANDO_CUSTOM_PROMO.expiryDate.getTime() / 1000),
+    minOrderAmount: null,
+    messageTemplate: 'Stały rabat 15% (ważny do 31.10.2026)',
+  };
+}
+
+/**
+ * Oblicza cenę po rabacie oraz opis tekstowy dla danej konfiguracji rabatu.
+ */
+function evaluateDiscount(newPrice, discount) {
+  if (!discount) return null;
+
+  let newDiscountedPrice = null;
+  let discountStr = discount.discountStr || null;
+  const couponCode = discount.couponCode || null;
+  const minOrder = discount.minOrderAmount || null;
+
+  if (discount.isFinalPrice) {
+    newDiscountedPrice = discount.value;
+    const saved = newPrice - newDiscountedPrice;
+    discountStr = couponCode ? `Kod: ${couponCode} (-${saved.toFixed(2)} zł)` : `-${saved.toFixed(2)} zł`;
+  } else if (discount.isPercent) {
+    newDiscountedPrice = newPrice * (1 - discount.value / 100);
+    if (!discountStr) {
+      if (minOrder && newPrice < minOrder) {
+        discountStr = couponCode
+          ? `Kod: ${couponCode} (-${discount.value}% [min. ${minOrder} zł])`
+          : `-${discount.value}% (min. ${minOrder} zł)`;
+      } else {
+        discountStr = couponCode ? `Kod: ${couponCode} (-${discount.value}%)` : `-${discount.value}%`;
+      }
+    }
+  } else {
+    // Rabat kwotowy (np. 50 zł)
+    let discountAmount = discount.value;
+
+    // Jeśli produkt nie osiąga minimalnej kwoty zamówienia, rabat koszykowy rozkłada się proporcjonalnie.
+    // Zakładamy dobicie koszyka do minimum + ok. 10 zł.
+    if (minOrder && newPrice < minOrder) {
+      const assumedCart = minOrder + 10;
+      const ratio = newPrice / assumedCart;
+      discountAmount = Math.round(discount.value * ratio * 100) / 100;
+      newDiscountedPrice = newPrice - discountAmount;
+      discountStr = couponCode
+        ? `Kod: ${couponCode} (-${discountAmount.toFixed(2)} zł [prop. z ${discount.value} zł])`
+        : `-${discountAmount.toFixed(2)} zł (prop. z ${discount.value} zł)`;
+    } else {
+      newDiscountedPrice = newPrice - discountAmount;
+      discountStr = couponCode
+        ? `Kod: ${couponCode} (-${discountAmount.toFixed(2)} zł)`
+        : `-${discountAmount.toFixed(2)} zł`;
+    }
+  }
+
+  if (newDiscountedPrice < 0) newDiscountedPrice = 0;
+  newDiscountedPrice = Math.round(newDiscountedPrice * 100) / 100;
+
+  return {
+    ...discount,
+    newDiscountedPrice,
+    discountStr,
+    couponCode,
+    promoExpiresAt: discount.expiresAt || null,
+    minOrderAmount: minOrder,
+    messageTemplate: discount.messageTemplate || null,
+  };
+}
 
 async function main() {
   const isDryRun = process.argv.includes('--dry-run');
@@ -103,48 +191,39 @@ async function main() {
     let couponCode = null;
     let promoExpiresAt = null;
 
-    if (result.discount) {
-      couponCode = result.discount.couponCode || null;
-      promoExpiresAt = result.discount.expiresAt || null;
+    // Ewaluacja rabatu pobranego ze strony
+    const scrapedEval = result.discount ? evaluateDiscount(newPrice, result.discount) : null;
+    let chosenDiscount = scrapedEval;
 
-      if (result.discount.isFinalPrice) {
-         newDiscountedPrice = result.discount.value;
-         const saved = newPrice - newDiscountedPrice;
-         discountStr = couponCode ? `Kod: ${couponCode} (-${saved.toFixed(2)} zł)` : `-${saved.toFixed(2)} zł`;
-      } else if (result.discount.isPercent) {
-        newDiscountedPrice = newPrice * (1 - result.discount.value / 100);
-        const minOrder = result.discount.minOrderAmount;
-        if (minOrder && newPrice < minOrder) {
-          discountStr = couponCode
-            ? `Kod: ${couponCode} (-${result.discount.value}% [min. ${minOrder} zł])`
-            : `-${result.discount.value}% (min. ${minOrder} zł)`;
+    // Reguła dla Zalando: porównanie ze stałym rabatem 15% (ważnym do końca października 2026)
+    if (isZalandoDomain(hostname)) {
+      const standingDiscount = getZalandoStandingDiscount();
+      if (standingDiscount) {
+        const standingEval = evaluateDiscount(newPrice, standingDiscount);
+        if (!scrapedEval) {
+          // Brak innego rabatu na stronie — stosujemy 15%
+          chosenDiscount = standingEval;
+          console.log(`  ✓ Zalando: aktywny stały rabat 15% (do 31.10.2026) -> cena: ${standingEval.newDiscountedPrice} zł`);
         } else {
-          discountStr = couponCode ? `Kod: ${couponCode} (-${result.discount.value}%)` : `-${result.discount.value}%`;
+          // Porównujemy, który rabat daje niższą (lepszą) cenę końcową
+          if (standingEval.newDiscountedPrice < scrapedEval.newDiscountedPrice) {
+            chosenDiscount = standingEval;
+            console.log(`  ✓ Zalando: stały rabat 15% (${standingEval.newDiscountedPrice} zł) jest KORZYSTNIEJSZY niż kupon ${scrapedEval.couponCode || 'ze strony'} (${scrapedEval.newDiscountedPrice} zł)`);
+          } else {
+            chosenDiscount = scrapedEval;
+            console.log(`  ✓ Zalando: kupon ${scrapedEval.couponCode || 'ze strony'} (${scrapedEval.newDiscountedPrice} zł) jest KORZYSTNIEJSZY niż stały rabat 15% (${standingEval.newDiscountedPrice} zł)`);
+          }
         }
       } else {
-        // Rabat kwotowy (np. 50 zł)
-        const minOrder = result.discount.minOrderAmount;
-        let discountAmount = result.discount.value;
-
-        // Jeśli produkt nie osiąga minimalnej kwoty zamówienia, rabat koszykowy rozkłada się proporcjonalnie.
-        // Zakładamy dobicie koszyka do minimum + ok. 10 zł.
-        if (minOrder && newPrice < minOrder) {
-          const assumedCart = minOrder + 10;
-          const ratio = newPrice / assumedCart;
-          discountAmount = Math.round(result.discount.value * ratio * 100) / 100;
-          newDiscountedPrice = newPrice - discountAmount;
-          discountStr = couponCode
-            ? `Kod: ${couponCode} (-${discountAmount.toFixed(2)} zł [prop. z ${result.discount.value} zł])`
-            : `-${discountAmount.toFixed(2)} zł (prop. z ${result.discount.value} zł)`;
-        } else {
-          newDiscountedPrice = newPrice - discountAmount;
-          discountStr = couponCode
-            ? `Kod: ${couponCode} (-${discountAmount.toFixed(2)} zł)`
-            : `-${discountAmount.toFixed(2)} zł`;
-        }
+        console.log(`  ℹ Zalando: stały rabat 15% przedawnił się (wygasł 31.10.2026)`);
       }
-      if (newDiscountedPrice < 0) newDiscountedPrice = 0;
-      newDiscountedPrice = Math.round(newDiscountedPrice * 100) / 100;
+    }
+
+    if (chosenDiscount) {
+      newDiscountedPrice = chosenDiscount.newDiscountedPrice;
+      discountStr = chosenDiscount.discountStr;
+      couponCode = chosenDiscount.couponCode;
+      promoExpiresAt = chosenDiscount.promoExpiresAt;
     }
 
     const oldPrice = product.cena;
@@ -202,8 +281,8 @@ async function main() {
             couponCode,
             expiresAt: promoExpiresAt,
             ogImage: result.ogImage,
-            minOrderAmount: result.discount?.minOrderAmount || null,
-            messageTemplate: result.discount?.messageTemplate || null,
+            minOrderAmount: chosenDiscount?.minOrderAmount || null,
+            messageTemplate: chosenDiscount?.messageTemplate || null,
           }
         );
       } else {
