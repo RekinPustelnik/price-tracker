@@ -100,7 +100,8 @@ W swoim repozytorium na GitHubie przejdź do **Settings → Secrets and variable
 | `DISCORD_WEBHOOK_URL` | Adres URL webhooka Discord |
 | `SCRAPER_API_KEY` | *(Opcjonalnie)* Darmowy klucz z [ScraperAPI](https://www.scraperapi.com/) do omijania blokad |
 
-Po dodaniu sekretów przejdź do zakładki **Actions** i uruchom workflow **Sprawdź ceny** (lub poczekaj na automatyczne wywołanie harmonogramu).
+Po dodaniu sekretów przejdź do zakładki **Actions** w GitHubie i uruchom wybrany workflow (Pełny lub Szybki) ręcznie, używając przycisku *Run workflow*.
+*(Automatyczne harmonogramy zostały wyłączone, aby oszczędzać limit minut w GitHub Actions - czytaj FAQ).*
 
 ---
 
@@ -170,10 +171,13 @@ price-tracker/
 <details>
 <summary><b>Jak często skrypt sprawdza ceny?</b></summary>
 
-Domyślnie projekt posiada dwa niezależne obiegi (workflows):
-1. **Pełny** (`.github/workflows/price-check-full.yml`) uruchamia się **2 razy dziennie** (o 8:00 i 20:00) i korzysta ze ScraperAPI (jeśli dodano klucz).
-2. **Szybki** (`.github/workflows/price-check-fast.yml`) uruchamia się **co godzinę** i sprawdza tylko sklepy łatwo dostępne (bez użycia ScraperAPI).
-Możesz dowolnie zmieniać te harmonogramy — zobacz [Instrukcję Konfiguracji](docs/CONFIGURATION.md#krok-6-dostosowanie-częstotliwości-cron).
+Domyślnie projekt posiada dwa niezależne obiegi (workflows): **Pełny** i **Szybki**.
+Zostały one skonfigurowane do uruchamiania **ręcznego** (z zakładki Actions na GitHubie). Automatyczne harmonogramy (`cron`) zostały wyłączone, aby uniknąć szybkiego wyczerpania 2000 minut miesięcznie dostępnych za darmo dla prywatnych repozytoriów.
+
+Jeśli chcesz je zautomatyzować za darmo:
+1. **GitHub Self-Hosted Runner**: Skonfiguruj własny komputer jako runner dla GitHuba (brak limitu minut).
+2. **Oracle Cloud VPS**: Wrzuć kod na darmowy serwer (Always Free) i użyj systemowego `crona`.
+3. **Publiczne repozytorium**: Zmień widoczność repo na Publiczną (GitHub znosi wtedy limit 2000 minut dla Actions), po czym przywróć konfigurację `schedule` w plikach YAML.
 </details>
 
 <details>
