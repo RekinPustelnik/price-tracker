@@ -1,9 +1,6 @@
 name: 🚀 Sprawdź ceny (Szybko - Bez API)
 
 on:
-  schedule:
-    # Uruchamia się o równej godzinie przez cały dzień Z WYJĄTKIEM 8:00 (kiedy działa pełna akcja)
-    - cron: '0 0-7,9-23 * * *'
   # Możliwość ręcznego uruchomienia z zakładki Actions
   workflow_dispatch:
 
