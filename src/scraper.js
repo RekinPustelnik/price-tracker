@@ -260,12 +260,23 @@ async function fetchAndParse(targetUrl, selector, discountSelector, headers, max
         }
       }
 
+      // Próba ekstrakcji sprzedawcy (np. dla Zalando)
+      let sellerName = null;
+      const ldScripts = $('script[type="application/ld+json"]');
+      for (let i = 0; i < ldScripts.length; i++) {
+        try {
+          const json = JSON.parse($(ldScripts[i]).html());
+          sellerName = findSellerInJsonLd(json) || sellerName;
+        } catch { }
+      }
+
       console.log(`  ✓ Cena: ${price} (tekst: "${rawText}")`);
+      if (sellerName) console.log(`  ✓ Sprzedawca: ${sellerName}`);
       if (discount) {
         const info = discount.couponCode ? `kod: ${discount.couponCode}, wartość: ${discount.value}` : discount.value;
         console.log(`  ✓ Rabat: ${info}`);
       }
-      return { price, discount, ogImage, allBlocked: false, lastError: '' };
+      return { price, discount, sellerName, ogImage, allBlocked: false, lastError: '' };
     } catch (err) {
       lastError = err.message;
       console.error(`  ✗ [Próba ${attempt}/${maxRetries}] ${err.message}`);
@@ -372,6 +383,31 @@ function findPriceInJsonLd(obj) {
     if (typeof val === 'object') {
       const price = findPriceInJsonLd(val);
       if (price) return price;
+    }
+  }
+  return null;
+}
+
+/**
+ * Rekurencyjnie przeszukuje obiekt JSON-LD w poszukiwaniu sprzedawcy (seller).
+ */
+function findSellerInJsonLd(obj) {
+  if (!obj || typeof obj !== 'object') return null;
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      const seller = findSellerInJsonLd(item);
+      if (seller) return seller;
+    }
+    return null;
+  }
+  if (obj.seller && obj.seller.name) return obj.seller.name;
+  if (obj.offers && obj.offers.seller && obj.offers.seller.name) return obj.offers.seller.name;
+  for (const key of Object.keys(obj)) {
+    if (key.startsWith('@')) continue;
+    const val = obj[key];
+    if (typeof val === 'object') {
+      const seller = findSellerInJsonLd(val);
+      if (seller) return seller;
     }
   }
   return null;

@@ -196,9 +196,15 @@ async function main() {
     const scrapedEval = result.discount ? evaluateDiscount(newPrice, result.discount) : null;
     let chosenDiscount = scrapedEval;
 
-    // Reguła dla Zalando: porównanie ze stałym rabatem 25% (ważnym do końca października 2026)
+    // Reguła dla Zalando: porównanie ze stałym rabatem (ważnym do 11.11.2026)
     if (isZalandoDomain(hostname)) {
-      const standingDiscount = getZalandoStandingDiscount();
+      const isZalandoSeller = !result.sellerName || result.sellerName.toLowerCase().includes('zalando');
+      const standingDiscount = isZalandoSeller ? getZalandoStandingDiscount() : null;
+      
+      if (!isZalandoSeller) {
+        console.log(`  ℹ Zalando: Produkt sprzedawany przez partnera (${result.sellerName}), prywatny kod rabatowy nie działa.`);
+      }
+
       if (standingDiscount) {
         const standingEval = evaluateDiscount(newPrice, standingDiscount);
         if (!scrapedEval) {
