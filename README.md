@@ -181,6 +181,16 @@ Jeśli chcesz je zautomatyzować za darmo:
 </details>
 
 <details>
+<summary><b>Jak dodać własny, jednorazowy kod rabatowy z e-maila?</b></summary>
+
+Projekt wspiera wprowadzanie prywatnych kodów rabatowych (np. kod zniżkowy -15% dla Zalando, który masz na skrzynce mailowej). Aby to zrobić:
+1. Otwórz plik `src/index.js` w repozytorium.
+2. Na samej górze znajdź zmienną `ZALANDO_CUSTOM_PROMO` (lub analogiczną dla innych sklepów).
+3. Podmień wartość `percent` (np. na `15`) oraz wpisz swój kod w polu `code`. Zaktualizuj też `expiryDate`.
+Skrypt sam wykryje, czy podany kod daje lepszą cenę niż ewentualna wyprzedaż dostępna publicznie na stronie, oraz (w przypadku Zalando) upewni się, że produkt jest sprzedawany przez samo Zalando, a nie partnera zewnętrznego. Po zużyciu jednorazowego kodu w sklepie, pamiętaj aby zmienić z powrotem `percent: 0`!
+</details>
+
+<details>
 <summary><b>Co zrobić, gdy cena zwraca błąd lub null?</b></summary>
 
 Upewnij się, że strona nie renderuje ceny dynamicznie przez JavaScript po załadowaniu szkieletu HTML. Jeśli sklep blokuje ruch kodem 403 (Cloudflare), dodaj darmowy klucz `SCRAPER_API_KEY`.
