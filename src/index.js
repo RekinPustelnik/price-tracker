@@ -4,10 +4,11 @@ import { sendPriceAlert, sendErrorAlert, sendSummary } from './discord.js';
 
 const ERROR_ALERT_THRESHOLD = 5;
 
-// Stały rabat użytkownika dla Zalando: 25% ważny do końca października 2026 r. (31.10.2026 23:59:59)
+// Stały rabat użytkownika dla Zalando: 15% ważny do 11 listopada 2026 r. (11.11.2026 23:59:59)
 const ZALANDO_CUSTOM_PROMO = {
-  expiryDate: new Date('2026-10-31T23:59:59+01:00'),
-  percent: 25,
+  expiryDate: new Date('2026-11-11T23:59:59+01:00'),
+  percent: 15,
+  code: 'TWÓJ_KOD_Z_MAILA', // Możesz tu wpisać swój kod
 };
 
 /**
@@ -22,11 +23,11 @@ function getZalandoStandingDiscount() {
   return {
     value: ZALANDO_CUSTOM_PROMO.percent,
     isPercent: true,
-    couponCode: null,
-    discountStr: `Rabat 25% (-25%)`,
+    couponCode: ZALANDO_CUSTOM_PROMO.code,
+    discountStr: `Twój kod ze skrzynki (-${ZALANDO_CUSTOM_PROMO.percent}%)`,
     expiresAt: Math.floor(ZALANDO_CUSTOM_PROMO.expiryDate.getTime() / 1000),
     minOrderAmount: null,
-    messageTemplate: 'Stały rabat 25% (ważny do 31.10.2026)',
+    messageTemplate: `Prywatny kod rabatowy ${ZALANDO_CUSTOM_PROMO.percent}% (ważny do 11.11.2026)`,
   };
 }
 
