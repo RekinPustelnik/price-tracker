@@ -220,7 +220,9 @@ async function fetchAndParse(targetUrl, selector, discountSelector, headers, max
       } else if ($el.is('input')) {
         rawText = $el.val() || '';
       } else {
-        rawText = $el.text().trim();
+        const clone = $el.clone();
+        clone.find('script, style, noscript').remove();
+        rawText = clone.text().trim();
       }
 
       // Fallback dla domen SPA: jeśli główny selektor nie zadziałał, próbuj alternatyw
@@ -241,7 +243,9 @@ async function fetchAndParse(targetUrl, selector, discountSelector, headers, max
       
       let discount = null;
       if (discountSelector) {
-        const rawDiscount = $(discountSelector).first().text().trim();
+        const cloneDesc = $(discountSelector).first().clone();
+        cloneDesc.find('script, style, noscript').remove();
+        const rawDiscount = cloneDesc.text().trim();
         if (rawDiscount) {
           discount = parseDiscountDomain(rawDiscount, domain);
         }
