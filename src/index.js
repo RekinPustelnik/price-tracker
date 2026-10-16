@@ -4,10 +4,10 @@ import { sendPriceAlert, sendErrorAlert, sendSummary } from './discord.js';
 
 const ERROR_ALERT_THRESHOLD = 5;
 
-// Stały rabat użytkownika dla Zalando: 15% ważny do 11 listopada 2026 r. (11.11.2026 23:59:59)
+// Stały rabat użytkownika dla Zalando: 25% ważny do końca października 2027 r. (31.10.2027 23:59:59)
 const ZALANDO_CUSTOM_PROMO = {
-  expiryDate: new Date('2026-11-11T23:59:59+01:00'),
-  percent: 15,
+  expiryDate: new Date('2027-10-31T23:59:59+01:00'),
+  percent: 25,
   code: 'TWÓJ_KOD_Z_MAILA', // Możesz tu wpisać swój kod
 };
 
@@ -27,7 +27,7 @@ function getZalandoStandingDiscount() {
     discountStr: `Twój kod ze skrzynki (-${ZALANDO_CUSTOM_PROMO.percent}%)`,
     expiresAt: Math.floor(ZALANDO_CUSTOM_PROMO.expiryDate.getTime() / 1000),
     minOrderAmount: null,
-    messageTemplate: `Prywatny kod rabatowy ${ZALANDO_CUSTOM_PROMO.percent}% (ważny do 11.11.2026)`,
+    messageTemplate: `Prywatny kod rabatowy ${ZALANDO_CUSTOM_PROMO.percent}% (ważny do 31.10.2027)`,
   };
 }
 
@@ -196,7 +196,7 @@ async function main() {
     const scrapedEval = result.discount ? evaluateDiscount(newPrice, result.discount) : null;
     let chosenDiscount = scrapedEval;
 
-    // Reguła dla Zalando: porównanie ze stałym rabatem (ważnym do 11.11.2026)
+    // Reguła dla Zalando: porównanie ze stałym rabatem (ważnym do 31.10.2027)
     if (isZalandoDomain(hostname)) {
       const isZalandoSeller = !result.sellerName || result.sellerName.toLowerCase().includes('zalando');
       const standingDiscount = isZalandoSeller ? getZalandoStandingDiscount() : null;
@@ -208,21 +208,21 @@ async function main() {
       if (standingDiscount) {
         const standingEval = evaluateDiscount(newPrice, standingDiscount);
         if (!scrapedEval) {
-          // Brak innego rabatu na stronie — stosujemy 25%
+          // Brak innego rabatu na stronie — stosujemy rabat prywatny
           chosenDiscount = standingEval;
-          console.log(`  ✓ Zalando: aktywny stały rabat 25% (do 31.10.2026) -> cena: ${standingEval.newDiscountedPrice} zł`);
+          console.log(`  ✓ Zalando: aktywny stały rabat ${ZALANDO_CUSTOM_PROMO.percent}% (do 31.10.2027) -> cena: ${standingEval.newDiscountedPrice} zł`);
         } else {
           // Porównujemy, który rabat daje niższą (lepszą) cenę końcową
           if (standingEval.newDiscountedPrice < scrapedEval.newDiscountedPrice) {
             chosenDiscount = standingEval;
-            console.log(`  ✓ Zalando: stały rabat 25% (${standingEval.newDiscountedPrice} zł) jest KORZYSTNIEJSZY niż kupon ${scrapedEval.couponCode || 'ze strony'} (${scrapedEval.newDiscountedPrice} zł)`);
+            console.log(`  ✓ Zalando: stały rabat ${ZALANDO_CUSTOM_PROMO.percent}% (${standingEval.newDiscountedPrice} zł) jest KORZYSTNIEJSZY niż kupon ${scrapedEval.couponCode || 'ze strony'} (${scrapedEval.newDiscountedPrice} zł)`);
           } else {
             chosenDiscount = scrapedEval;
-            console.log(`  ✓ Zalando: kupon ${scrapedEval.couponCode || 'ze strony'} (${scrapedEval.newDiscountedPrice} zł) jest KORZYSTNIEJSZY niż stały rabat 25% (${standingEval.newDiscountedPrice} zł)`);
+            console.log(`  ✓ Zalando: kupon ${scrapedEval.couponCode || 'ze strony'} (${scrapedEval.newDiscountedPrice} zł) jest KORZYSTNIEJSZY niż stały rabat ${ZALANDO_CUSTOM_PROMO.percent}% (${standingEval.newDiscountedPrice} zł)`);
           }
         }
       } else {
-        console.log(`  ℹ Zalando: stały rabat 25% przedawnił się (wygasł 31.10.2026)`);
+        console.log(`  ℹ Zalando: stały rabat ${ZALANDO_CUSTOM_PROMO.percent}% przedawnił się (wygasł 31.10.2027)`);
       }
     }
 
