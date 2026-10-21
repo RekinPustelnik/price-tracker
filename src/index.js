@@ -6,8 +6,8 @@ const ERROR_ALERT_THRESHOLD = 5;
 
 // Stały rabat użytkownika dla Zalando: 25% ważny do końca października 2027 r. (31.10.2027 23:59:59)
 const ZALANDO_CUSTOM_PROMO = {
-  expiryDate: new Date('2027-10-31T23:59:59+01:00'),
-  percent: 25,
+  expiryDate: new Date('2026-11-11T23:59:59+01:00'),
+  percent: 15,
   code: 'TWÓJ_KOD_Z_MAILA', // Możesz tu wpisać swój kod
 };
 
