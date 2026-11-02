@@ -15,11 +15,14 @@ const USER_AGENTS = [
 const TIMEOUT_MS = 45_000;
 const TIMEOUT_RENDER_MS = 90_000;
 
-// Domeny SPA wymagające renderowania JavaScript w przeglądarce.
-// Bezpośredni fetch zwraca challenge bota (Akamai/PerimeterX) zamiast HTML z ceną.
-// Dla tych domen pomijamy fazę bezpośrednią i od razu używamy ScraperAPI z render=true.
+// Domeny SPA / z zaawansowaną ochroną antybotową (Akamai/Cloudflare/PerimeterX),
+// wymagające renderowania JavaScript w przeglądarce (ScraperAPI z render=true).
+// Bezpośredni fetch zwraca challenge bota (Akamai/PerimeterX) lub kod 403 zamiast HTML z ceną.
 const JS_RENDER_DOMAINS = [
   'zara.com',
+  'next.pl',
+  'nextdirect.com',
+  'next.co.uk',
 ];
 
 // Domeny Zalando — w HTML-u zawierają dane GraphQL z cenami i kuponami (incentives).
@@ -189,6 +192,22 @@ async function fetchAndParse(targetUrl, selector, discountSelector, headers, max
       const html = await response.text();
       const $ = cheerio.load(html);
 
+      // Wykrywanie stron blokad antybotowych (Akamai, Cloudflare, PerimeterX) serwowanych ze statusem HTTP 200
+      const pageTitle = ($('title').text() || '').trim().toLowerCase();
+      const rawHtmlLower = html.slice(0, 3000).toLowerCase();
+      const isBotBlocked =
+        pageTitle === 'access denied' ||
+        pageTitle.includes('attention required') ||
+        pageTitle.includes('just a moment...') ||
+        rawHtmlLower.includes("you don't have permission to access") ||
+        rawHtmlLower.includes('errors.edgesuite.net') ||
+        rawHtmlLower.includes('it appears that you have encountered a technical problem while browsing next');
+
+      if (isBotBlocked) {
+        allBlocked = true;
+        throw new Error(`Strona ${domain} zablokowana przez zabezpieczenia antybotowe (Access Denied / Akamai / Challenge)`);
+      }
+
       // Ekstrakcja og:image / twitter:image (Feature 1)
       let ogImage = $('meta[property="og:image"]').attr('content') ||
                     $('meta[property="og:image:url"]').attr('content') ||
@@ -319,7 +338,18 @@ function extractPriceFallback($, domain) {
     return metaPrice;
   }
 
-  // 3. Heurystyka DOM: szukamy krótkich tekstów z ceną (zł, PLN, €, lub sam format liczbowy)
+  // 3. Dedykowane selektory pomocnicze dla trudnych domen
+  if (domain.includes('next.') || domain === 'next.pl' || domain === 'nextdirect.com') {
+    const nextPrice = $('[data-testid="product-now-price"]').text().trim() ||
+                      $('[data-testid="item-price"]').text().trim() ||
+                      $('.product-now-price').text().trim();
+    if (nextPrice) {
+      console.log(`    ✓ Fallback: cena Next z selektora pomocniczego = "${nextPrice}"`);
+      return nextPrice;
+    }
+  }
+
+  // 4. Heurystyka DOM: szukamy krótkich tekstów z ceną (zł, PLN, €, lub sam format liczbowy)
   const pricePattern = /\d+[.,]\d{2}\s*(zł|PLN|€|EUR)?/;
   const candidates = [];
   $('*').each((_, el) => {
@@ -563,8 +593,8 @@ export function parseDiscountDomain(text, domain) {
     }
   }
 
-  // Answear: "extra -10% z kodem: AT*", "-20% z kodem: SALE20!"
-  if (domain === 'answear.com') {
+  // Answear / Medicine: "extra -10% z kodem: AT*", "-20% z kodem: SALE20!"
+  if (domain === 'answear.com' || domain === 'wearmedicine.com') {
     let discountVal = null;
     let couponCode = null;
     const pctMatch = text.match(/-?\s*([\d\s.,]+)\s*%/);
