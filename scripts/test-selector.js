@@ -10,7 +10,7 @@
 import readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import * as cheerio from 'cheerio';
-import { parsePrice, parseDiscountDomain, parsePromoExpiry } from '../src/scraper.js';
+import { parsePrice, parseDiscountDomain, parsePromoExpiry, detectBotBlock } from '../src/scraper.js';
 
 const USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
@@ -105,6 +105,10 @@ async function main() {
   }
 
   const html = await response.text();
+  if (detectBotBlock(response.status, html)) {
+    console.log('\n⚠️  Wykryto stronę blokady/challenge antybotowego (Akamai / Cloudflare / Next error page) mimo HTTP 200.');
+    console.log('    Wskazówka: Skorzystaj z SCRAPER_API_KEY w pliku .env.');
+  }
   const $ = cheerio.load(html);
 
   // Metadane OpenGraph / Favicon

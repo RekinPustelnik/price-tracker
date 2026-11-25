@@ -79,13 +79,56 @@ function buildHeaders(url) {
   };
 }
 
-export async function scrapePrice(url, selector, discountSelector = '', domain = '') {
+/**
+ * Wykrywa strony blokad antybotowych (Akamai, Cloudflare, PerimeterX)
+ * na podstawie kodu statusu HTTP lub znaczników w treści HTML (również przy HTTP 200).
+ *
+ * @param {number} status
+ * @param {string} [html='']
+ * @returns {boolean}
+ */
+export function detectBotBlock(status, html = '') {
+  const blockedCodes = [400, 401, 403, 406, 429, 503];
+  if (blockedCodes.includes(status)) {
+    return true;
+  }
+
+  if (!html) return false;
+
+  // Sprawdzamy szerszy prefiks (min. 15 KB), bo strony błędów Akamai/Next mają rozbudowany <style>/<svg> przed treścią (ok. 4.2 KB)
+  const rawHtmlLower = html.slice(0, 15000).toLowerCase();
+  const titleMatch = rawHtmlLower.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const pageTitle = titleMatch ? titleMatch[1].trim() : '';
+
+  return (
+    pageTitle === 'access denied' ||
+    pageTitle.includes('attention required') ||
+    pageTitle.includes('just a moment') ||
+    pageTitle.includes('robot or human') ||
+    pageTitle.includes('verify you are human') ||
+    rawHtmlLower.includes("you don't have permission to access") ||
+    rawHtmlLower.includes('errors.edgesuite.net') ||
+    rawHtmlLower.includes('sec-if-cpt-container') ||
+    rawHtmlLower.includes('scf-akamai-protected-by') ||
+    rawHtmlLower.includes('cf-browser-verification') ||
+    rawHtmlLower.includes('challenge-platform') ||
+    rawHtmlLower.includes('_sec/cp_challenge') ||
+    rawHtmlLower.includes('bm-verify') ||
+    rawHtmlLower.includes('it appears that you have encountered a technical problem while browsing next')
+  );
+}
+
+export async function scrapePrice(url, selector, discountSelector = '', domain = '', options = {}) {
   let lastError = '';
   const needsRender = requiresJsRender(domain);
+  const fetchOptions = {
+    fetchImpl: options.fetchImpl,
+    retryDelayMs: options.retryDelayMs,
+  };
 
-  // ── Domeny SPA (np. Zara): pomijamy bezpośredni fetch, od razu ScraperAPI z render=true ──
+  // ── Domeny SPA (np. Zara, Next): pomijamy bezpośredni fetch, od razu ScraperAPI z render=true ──
   if (needsRender) {
-    const scraperApiKey = process.env.SCRAPER_API_KEY;
+    const scraperApiKey = options.scraperApiKey ?? process.env.SCRAPER_API_KEY;
     if (!scraperApiKey) {
       console.log(`  ⚠ Domena ${domain} wymaga ScraperAPI z render=true, ale brak SCRAPER_API_KEY`);
       return {
@@ -98,12 +141,13 @@ export async function scrapePrice(url, selector, discountSelector = '', domain =
     }
 
     console.log(`  → Domena SPA — ScraperAPI z render=true...`);
-    const proxyUrl = `https://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&render=true&country_code=pl`;
-    const renderResult = await fetchAndParse(proxyUrl, selector, discountSelector, {}, 2, domain, url, TIMEOUT_RENDER_MS);
+    const proxyUrlPl = `https://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&render=true&country_code=pl`;
+    const renderResult = await fetchAndParse(proxyUrlPl, selector, discountSelector, {}, 1, domain, url, TIMEOUT_RENDER_MS, fetchOptions);
     if (renderResult.price !== null) {
       return {
         price: renderResult.price,
         discount: renderResult.discount,
+        sellerName: renderResult.sellerName,
         ogImage: renderResult.ogImage,
         blocked: false,
         error: null,
@@ -111,7 +155,27 @@ export async function scrapePrice(url, selector, discountSelector = '', domain =
     }
     lastError = renderResult.lastError;
 
+    // Druga próba dla domen SPA: jeśli zawiodło (zwłaszcza blokada na małej puli PL), próbuj bez country_code=pl
+    const retryUrl = renderResult.allBlocked
+      ? `https://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&render=true`
+      : proxyUrlPl;
     if (renderResult.allBlocked) {
+      console.log(`  → Ponowna próba ScraperAPI (render=true bez country_code=pl)...`);
+    }
+    const retryResult = await fetchAndParse(retryUrl, selector, discountSelector, {}, 1, domain, url, TIMEOUT_RENDER_MS, fetchOptions);
+    if (retryResult.price !== null) {
+      return {
+        price: retryResult.price,
+        discount: retryResult.discount,
+        sellerName: retryResult.sellerName,
+        ogImage: retryResult.ogImage,
+        blocked: false,
+        error: null,
+      };
+    }
+    lastError = retryResult.lastError || lastError;
+
+    if (renderResult.allBlocked && retryResult.allBlocked) {
       return {
         price: null,
         discount: null,
@@ -125,11 +189,12 @@ export async function scrapePrice(url, selector, discountSelector = '', domain =
 
   // ── Standardowe domeny: Faza 1 (bezpośredni fetch) + Faza 2 (ScraperAPI fallback) ──
   console.log(`  → Próba bezpośrednia...`);
-  const directResult = await fetchAndParse(url, selector, discountSelector, buildHeaders(url), 2, domain, url);
+  const directResult = await fetchAndParse(url, selector, discountSelector, buildHeaders(url), 2, domain, url, TIMEOUT_MS, fetchOptions);
   if (directResult.price !== null) {
     return {
       price: directResult.price,
       discount: directResult.discount,
+      sellerName: directResult.sellerName,
       ogImage: directResult.ogImage,
       blocked: false,
       error: null,
@@ -137,15 +202,16 @@ export async function scrapePrice(url, selector, discountSelector = '', domain =
   }
   lastError = directResult.lastError;
 
-  const scraperApiKey = process.env.SCRAPER_API_KEY;
+  const scraperApiKey = options.scraperApiKey ?? process.env.SCRAPER_API_KEY;
   if (scraperApiKey) {
     console.log(`  → Próba przez ScraperAPI...`);
     const proxyUrl = `https://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}`;
-    const proxyResult = await fetchAndParse(proxyUrl, selector, discountSelector, {}, 1, domain, url);
+    const proxyResult = await fetchAndParse(proxyUrl, selector, discountSelector, {}, 1, domain, url, TIMEOUT_MS, fetchOptions);
     if (proxyResult.price !== null) {
       return {
         price: proxyResult.price,
         discount: proxyResult.discount,
+        sellerName: proxyResult.sellerName,
         ogImage: proxyResult.ogImage || directResult.ogImage,
         blocked: false,
         error: null,
@@ -167,46 +233,33 @@ export async function scrapePrice(url, selector, discountSelector = '', domain =
   return { price: null, discount: null, ogImage: null, blocked: false, error: lastError };
 }
 
-async function fetchAndParse(targetUrl, selector, discountSelector, headers, maxRetries, domain, originalUrl = targetUrl, timeoutMs = TIMEOUT_MS) {
+async function fetchAndParse(targetUrl, selector, discountSelector, headers, maxRetries, domain, originalUrl = targetUrl, timeoutMs = TIMEOUT_MS, options = {}) {
   let allBlocked = true;
   let lastError = '';
+  const fetchFn = options.fetchImpl || globalThis.fetch;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const response = await fetch(targetUrl, {
+      const response = await fetchFn(targetUrl, {
         headers,
         signal: AbortSignal.timeout(timeoutMs),
         redirect: 'follow',
       });
 
       if (!response.ok) {
-        const blockedCodes = [400, 401, 403, 406, 429, 503];
-        if (!blockedCodes.includes(response.status)) {
+        if (!detectBotBlock(response.status)) {
           allBlocked = false;
         }
         throw new Error(`HTTP ${response.status} ${response.statusText}`);
       }
 
-      allBlocked = false;
-
       const html = await response.text();
-      const $ = cheerio.load(html);
-
-      // Wykrywanie stron blokad antybotowych (Akamai, Cloudflare, PerimeterX) serwowanych ze statusem HTTP 200
-      const pageTitle = ($('title').text() || '').trim().toLowerCase();
-      const rawHtmlLower = html.slice(0, 3000).toLowerCase();
-      const isBotBlocked =
-        pageTitle === 'access denied' ||
-        pageTitle.includes('attention required') ||
-        pageTitle.includes('just a moment...') ||
-        rawHtmlLower.includes("you don't have permission to access") ||
-        rawHtmlLower.includes('errors.edgesuite.net') ||
-        rawHtmlLower.includes('it appears that you have encountered a technical problem while browsing next');
-
-      if (isBotBlocked) {
-        allBlocked = true;
+      if (detectBotBlock(response.status, html)) {
         throw new Error(`Strona ${domain} zablokowana przez zabezpieczenia antybotowe (Access Denied / Akamai / Challenge)`);
       }
+
+      allBlocked = false;
+      const $ = cheerio.load(html);
 
       // Ekstrakcja og:image / twitter:image (Feature 1)
       let ogImage = $('meta[property="og:image"]').attr('content') ||
@@ -301,8 +354,10 @@ async function fetchAndParse(targetUrl, selector, discountSelector, headers, max
       console.error(`  ✗ [Próba ${attempt}/${maxRetries}] ${err.message}`);
 
       if (attempt < maxRetries) {
-        const delay = 1000 + Math.random() * 2000;
-        await new Promise((resolve) => setTimeout(resolve, delay));
+        const delay = options.retryDelayMs ?? (1000 + Math.random() * 2000);
+        if (delay > 0) {
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
       }
     }
   }
@@ -340,9 +395,10 @@ function extractPriceFallback($, domain) {
 
   // 3. Dedykowane selektory pomocnicze dla trudnych domen
   if (domain.includes('next.') || domain === 'next.pl' || domain === 'nextdirect.com') {
-    const nextPrice = $('[data-testid="product-now-price"]').text().trim() ||
-                      $('[data-testid="item-price"]').text().trim() ||
-                      $('.product-now-price').text().trim();
+    const nextPrice = $('[data-testid="product-now-price"] > span:not([data-testid="product-now-price-now-text"])').first().text().trim() ||
+                      $('[data-testid="product-now-price"]').first().text().trim() ||
+                      $('[data-testid="item-price"]').first().text().trim() ||
+                      $('.product-now-price').first().text().trim();
     if (nextPrice) {
       console.log(`    ✓ Fallback: cena Next z selektora pomocniczego = "${nextPrice}"`);
       return nextPrice;

@@ -6,7 +6,8 @@
   "scripts": {
     "check": "node src/index.js",
     "check:dry": "node src/index.js --dry-run",
-    "test-selector": "node scripts/test-selector.js"
+    "test-selector": "node scripts/test-selector.js",
+    "test": "node tests/scraper.test.js"
   },
   "dependencies": {
     "cheerio": "^1.0.0",
